@@ -1,0 +1,149 @@
+&NEWRUN
+    Head='TNSA SC Analysis'
+    !Distribution='test_plasma_file_protons_filtered.part'
+    Distribution='ltt_beam_export.part'
+
+    RUN = 1
+    Loop = F
+    Lmagnetized = T
+    EmitS = T
+    PhaseS = F
+
+    T_PhaseS = F
+
+    LarmorS = F
+    
+    LandFS = T
+
+    CathodeS = F
+
+    TrackS = F
+    RefS = F
+    TcheckS = F
+    PHASE_SCAN = F
+    AUTO_PHASE = T
+    Qbunch = 0
+    TRACK_ALL = T
+
+    ZSTART=0.0
+    Tr_emitS = True
+!----------------------------
+! IA5DQD01   z = 15.754 (m)
+! End of A2: z = 6.267
+! EMS loc: z = 9.515
+!----------------------------
+
+    ZSTOP = 4
+
+    !Set in distribution file instead: qbunch = 0.100 !varied [units?]
+
+    Zemit = 1000
+    Zphase = 20
+!    screen = 0.4, 1
+    phases = T
+
+    H_max = 2.0E-2
+    H_min = 0.2E-5
+    !H_max = 2.0E-3
+    !H_min = 0.2E-6
+    Max_step = 10000000
+
+    Lproject_emit = F
+
+   !! Particle file should set these
+   !! Trms = 8.7E-03 !keep fixed 
+   !! XYrms = 1.0 !vary between 0 and 2mm rms
+
+/
+
+
+&SCAN
+    LSCAN=F
+    !Scan_para=''
+    S_min=0.00
+    S_max=0.03
+    S_numb=15
+    FOM(1)='hor spot'
+    FOM(2)='ver spot'
+    FOM(3)='mean energy'
+    FOM(4)='rms beam energy'
+    FOM(5)='rms bunch length'
+    FOM(6)='hor emittance'
+    FOM(7)='ver emittance'
+    FOM(6)='phi end'
+/
+
+
+
+&CHARGE
+    LSPCH = F
+    LSPCH3D = F
+    Lmirror = F
+    !Nrad = 105, Nlong_in = 75 !28K simulation took 45min 35
+    !Nrad=39, Nlong_in=28 !4K 13
+    !Nrad = 30, Nlong_in = 20 !2K or 1K 10
+    !Nrad = 24, Nlong_in = 16 !1K 8
+    Nxf = 32
+    Nx0 = 15
+    Nyf = 32
+    Ny0 = 15
+    Nzf = 32
+    Nz0 = 15
+    Cell_var = 2.0
+    min_grid = 0.4E-07
+    Max_Scale = 0.01
+    Max_count = 100
+/
+
+
+&APERTURE
+  LApert = T
+
+    File_Aperture(1) = 'Rad'
+    Ap_Z1(1) =  0.04000
+    Ap_Z2(1) =  0.34000
+    Ap_R(1) =   20
+    A_xoff(1)= 0
+
+/
+
+
+&SOLENOID
+  LBfield = T
+! MA1SLA01
+! 8.351321e-003 T corresponds to 1A excitation current
+    FILE_BFieLD(1)='light_solenoid.dat'
+    S_pos(1) = 0
+    MaxB(1) = 1.75
+    S_xoff(1) = 0.0
+    S_yoff(1) = 0.0
+    S_smooth(1) = 1000000 !Zwischen 100.000 und 500.000 Konvergenz
+    S_higher_order(1) = T
+/
+
+
+
+&output
+high_res = T
+binary = F
+/
+
+&Dipole
+
+ LDipole = F
+ D_Type(1) = 'hor'
+
+ D_strength(1) =   2.000900
+
+ D_Gap(1,1) =  0.02000
+
+ D_Gap(2,1) =  0.02000
+
+ D1(1) = 0.4, 0.7
+
+ D2(1) = -0.4, 0.7
+
+ D3(1) = 0.4, 1.3
+
+ D4(1) = -0.4, 1.2
+/
