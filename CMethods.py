@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import scipy.stats as st
 import scipy.constants as const
 import scipy as sp
+import torch
 from matplotlib import colors
 from pmd_beamphysics import particles
 
@@ -786,7 +787,6 @@ def astra_file_to_ttm(file, ref_energy, particle = "proton"):
     :param particle: Particle type: proton or electron
     :return: Tensor object
     """
-    import csv
 
     c = sp.constants.speed_of_light
 
@@ -842,6 +842,6 @@ def astra_file_to_ttm(file, ref_energy, particle = "proton"):
     p = np.sqrt(np.square(p_x)+np.square(p_y)+np.square(p_z))
     p_t = beta_ref*((p-p_ref)/p_ref)        #approximation, see mad-x physics, eq. 1.4
 
-    particles = np.array([x, delta_x, y, delta_y, t, p_t]).T
+    particles = torch.tensor([x, delta_x, y, delta_y, t, p_t]).T
 
     return particles
