@@ -776,6 +776,72 @@ def astra_to_part_file(file_name, a0:astra.Astra, particle_group_index=-1):
     p_y = a0.particles[particle_group_index].py
     p_z = a0.particles[particle_group_index].pz
 
-
-
     return None
+
+def astra_file_to_ttm(file, ref_energy, particle = "proton"):
+    """
+    Transforms an astra .part file to a tensor for transfer matrix calculations
+    :param file: Name/path of the .part file
+    :param ref_energy: Reference energy
+    :param particle: Particle type: proton or electron
+    :return: Tensor object
+    """
+    import csv
+
+    c = sp.constants.speed_of_light
+
+    mass = 1
+
+    if particle == 'proton':
+        mass = const.physical_constants['proton mass energy equivalent in MeV'][0]
+    elif particle == 'electron':
+        mass = const.physical_constants['electron mass energy equivalent in MeV'][0]
+
+    else:
+        print("Unknown particle")
+
+    if isinstance(file, str):
+
+        cols = ["x", "y", "z", "px", "py", "pz", "Clock", "Charge", "Index", "Flag"]
+        df = pd.read_csv(file, header=None, names=cols)
+
+        first_row_df = df.iloc[[0]]
+
+        p_z = df["pz"].to_numpy()
+        p_z_ref = p_z[0]
+        p_z = p_z+p_z_ref
+        p_x = df["px"].to_numpy()
+        p_y = df["py"].to_numpy()
+        x = df["x"].to_numpy()
+        y = df["y"].to_numpy()
+        z = df["z"].to_numpy()
+        x = np.delete(x, 0)
+        y = np.delete(y, 0)
+        z = np.delete(z, 0)
+        p_x = np.delete(p_x, 0)
+        p_y = np.delete(p_y, 0)
+        p_z = np.delete(p_z, 0)
+
+    elif isinstance(file, astra.ParticleGroup):
+
+        p_x = file["px"]
+        p_y = file["py"]
+        p_z = file["pz"]
+        x = file["x"]
+        y = file["y"]
+        z = file["z"]
+
+    else:
+        print("Unknown input object")
+
+    beta_ref = beta(ref_energy)
+    p_ref = beta_to_p(beta_ref)
+    delta_x = p_x/p_ref
+    delta_y = p_y/p_ref
+    t = np.zeros_like(delta_x)
+    p = np.sqrt(np.square(p_x)+np.square(p_y)+np.square(p_z))
+    p_t = beta_ref*((p-p_ref)/p_ref)        #approximation, see mad-x physics, eq. 1.4
+
+    particles = np.array([x, delta_x, y, delta_y, t, p_t]).T
+
+    return particles
