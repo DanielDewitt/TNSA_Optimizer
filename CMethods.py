@@ -788,60 +788,50 @@ def astra_file_to_ttm(file, ref_energy, particle = "proton"):
     :return: Tensor object
     """
 
-    c = sp.constants.speed_of_light
+    #if isinstance(file, str):
 
-    mass = 1
+    cols = ["x", "y", "z", "px", "py", "pz", "Clock", "Charge", "Index", "Flag"]
+    df = pd.read_csv(file, header=None, names=cols)
 
-    if particle == 'proton':
-        mass = const.physical_constants['proton mass energy equivalent in MeV'][0]
-    elif particle == 'electron':
-        mass = const.physical_constants['electron mass energy equivalent in MeV'][0]
+    first_row_df = df.iloc[[0]]
 
-    else:
-        print("Unknown particle")
+    p_z = df["pz"].to_numpy()
+    p_z_ref = p_z[0]
+    p_z = p_z+p_z_ref
+    p_x = df["px"].to_numpy()
+    p_y = df["py"].to_numpy()
+    x = df["x"].to_numpy()
+    y = df["y"].to_numpy()
+    z = df["z"].to_numpy()
+    x = np.delete(x, 0)
+    y = np.delete(y, 0)
+    z = np.delete(z, 0)
+    p_x = np.delete(p_x, 0)
+    p_y = np.delete(p_y, 0)
+    p_z = np.delete(p_z, 0)
 
-    if isinstance(file, str):
-
-        cols = ["x", "y", "z", "px", "py", "pz", "Clock", "Charge", "Index", "Flag"]
-        df = pd.read_csv(file, header=None, names=cols)
-
-        first_row_df = df.iloc[[0]]
-
-        p_z = df["pz"].to_numpy()
-        p_z_ref = p_z[0]
-        p_z = p_z+p_z_ref
-        p_x = df["px"].to_numpy()
-        p_y = df["py"].to_numpy()
-        x = df["x"].to_numpy()
-        y = df["y"].to_numpy()
-        z = df["z"].to_numpy()
-        x = np.delete(x, 0)
-        y = np.delete(y, 0)
-        z = np.delete(z, 0)
-        p_x = np.delete(p_x, 0)
-        p_y = np.delete(p_y, 0)
-        p_z = np.delete(p_z, 0)
-
-    elif isinstance(file, astra.ParticleGroup):
-
-        p_x = file["px"]
-        p_y = file["py"]
-        p_z = file["pz"]
-        x = file["x"]
-        y = file["y"]
-        z = file["z"]
-
-    else:
-        print("Unknown input object")
+    # elif isinstance(file, astra.ParticleGroup):
+    #
+    #     p_x = file["px"]
+    #     p_y = file["py"]
+    #     p_z = file["pz"]
+    #     x = file["x"]
+    #     y = file["y"]
+    #     z = file["z"]
+    #
+    # else:
+    #     print("Unknown input object")
 
     beta_ref = beta(ref_energy)
-    p_ref = beta_to_p(beta_ref)
+    p_ref = beta_to_p(beta_ref)*10**6
     delta_x = p_x/p_ref
     delta_y = p_y/p_ref
     t = np.zeros_like(delta_x)
     p = np.sqrt(np.square(p_x)+np.square(p_y)+np.square(p_z))
     p_t = beta_ref*((p-p_ref)/p_ref)        #approximation, see mad-x physics, eq. 1.4
 
-    particles = torch.tensor([x, delta_x, y, delta_y, t, p_t]).T
+    output_particles_np = np.array([x, delta_x, y, delta_y, t, p_t]).T
+    output_particles = torch.from_numpy(output_particles_np)
 
-    return particles
+    return output_particles
+
