@@ -4,7 +4,56 @@ import CMethods
 import scipy as sp
 
 
-class Solenoid:
+class BeamLineElement:
+
+    def __init__(self):
+        self.z_start = 0
+
+    def check_particles(self, input_particles):
+
+        if isinstance(input_particles, torch.Tensor):
+            output_particles = [input_particles]
+        elif isinstance(input_particles, list):
+            output_particles = input_particles #check gradient here
+        else:
+            print("Unknown input particles input")
+
+        return output_particles
+
+    def check_rms(self, rms, n):
+
+        if not rms:
+            rms = [torch.empty(0, requires_grad=True), torch.empty(0, requires_grad=True), torch.empty(0, requires_grad=True)]
+        else:
+            self.z_start = rms[2][-1].clone()
+
+        return rms
+
+    def track(self, input_particles, rms=[], second_order=False):
+
+        input_particles_temp = self.check_particles(input_particles)
+        working_particles = input_particles_temp[-1].clone()
+        output_bunch = working_particles.clone()
+
+        rms = self.check_rms(rms, self.n)
+
+        for i in range(self.n):
+
+            output_bunch = torch.einsum('ik,jk->ji', [self.r, working_particles])
+            working_particles = output_bunch.clone()
+
+            rms[0] = torch.cat([rms[0], torch.std(output_bunch[:, 0]).unsqueeze(0)])
+
+            rms[1] = torch.cat([rms[1], torch.std(output_bunch[:, 2]).unsqueeze(0)])
+
+            rms[2] = torch.cat([rms[2], torch.mul(torch.add(self.z_start, torch.mul(self.n_length, i+1)), torch.ones(1, requires_grad=True))])
+
+        input_particles_temp.append(output_bunch)
+        return [input_particles_temp, rms]
+
+
+
+class Solenoid(BeamLineElement):
     """
     Solenoid class using second order transport maps similar to MAD-X. (see MAD-X Physics Guide). The map itself is
     divided into n sub-maps.
@@ -17,23 +66,23 @@ class Solenoid:
         :param length: (effective) length of the solenoid
         :param ref_energy: particle reference energy in MeV
         """
-        self.n = n
-        self.b_field = b_field
-        self.length = length
-        self.n_length = length / n
+        self.n = torch.tensor(n)
+        self.b_field = torch.tensor(b_field)
+        self.length = torch.tensor(length)
+        self.n_length = torch.div(self.length, self.n)
         self.ref_energy = ref_energy
-        self.beta_s = torch.tensor(CMethods.beta(self.ref_energy))
+        self.beta_s = torch.tensor(CMethods.beta(self.ref_energy), dtype=torch.float64)
         self.gamma_s = CMethods.beta_to_gamma(self.beta_s)
         self.p_s = sp.constants.proton_mass*self.gamma_s*self.beta_s*sp.constants.speed_of_light
-        self.q = sp.constants.elementary_charge
-        self.z_start = 0
+        self.q = torch.tensor(sp.constants.elementary_charge)
+        self.z_start = torch.tensor(0, dtype=torch.float64)
 
         self.generate_transfer_matrix()
 
     def generate_transfer_matrix(self):
         r = torch.zeros([6, 6], dtype=torch.float64)
 
-        k_0 = torch.tensor(self.q * self.b_field)
+        k_0 = torch.mul(self.q, self.b_field)
         k_1 = torch.mul(self.p_s, 2)
         k = torch.div(k_0, k_1)
         k_sq = torch.square(k)
@@ -57,6 +106,7 @@ class Solenoid:
         k_sq_l_div_double_beta = torch.div(k_sq_l, double_beta_s)
         l_div_double_beta = torch.div(self.n_length, double_beta_s)
 
+        r = r.clone()
         r[0, 0] = c_sq
         r[0, 1] = torch.div(sc, k)
         r[0, 2] = sc
@@ -142,71 +192,6 @@ class Solenoid:
 
         self.t = [t_1, t_2, t_3, t_4, t_5, t_6]
 
-
-    def check_particles(self, input_particles):
-
-        if isinstance(input_particles, np.ndarray):
-            output_particles = torch.from_numpy(input_particles)
-        elif isinstance(input_particles, torch.Tensor):
-            output_particles = input_particles
-        else:
-            print("Unknown input particles input")
-
-        return output_particles
-
-    def check_rms(self, rms, n):
-
-        if not rms:
-            rms_out = [torch.zeros(n), torch.zeros(n), torch.zeros(n)]
-        else:
-            rms_out = [rms[0].detach().clone(), rms[1].detach().clone(), rms[2].detach().clone()]
-            self.z_start = rms[2][-1]
-            rms_out[0] = torch.cat([rms_out[0], torch.zeros(n)])
-            rms_out[1] = torch.cat([rms_out[1], torch.zeros(n)])
-            rms_out[2] = torch.cat([rms_out[2], torch.zeros(n)])
-
-        return rms_out
-
-    def track(self, input_particles, rms=[], second_order=True):
-
-        working_particles = self.check_particles(input_particles).detach().clone()
-        output_bunch = working_particles
-        particle_history = working_particles
-
-        rms_list = self.check_rms(rms, self.n)
-
-        #if x_rms_in.size(0) > 0:
-        #    x_rms = x_rms_in
-        #    x_rms = torch.cat([x_rms, torch.zeros(self.n)])
-        #else:
-        #    x_rms = torch.zeros(self.n)
-
-        #print(f"Tracking a total of {working_particles.size(0)} particles through {self.n} solenoid segments.")
-        for i in range(self.n):
-            #if i % 10 == 0:
-                #print(f"Progress: {100*i/self.n} %.")
-            temp_bunch = torch.empty(1,6)
-            temp_bunch[0] = torch.matmul(self.r, working_particles[0])
-            for j in range(working_particles.size(0)):
-
-                if second_order:
-                    z_correction = self.second_order_correction(working_particles[j], self.t)
-                else:
-                    z_correction = torch.zeros(6)
-
-                output_bunch[j] = torch.add(torch.matmul(self.r, working_particles[j]), z_correction)
-
-            # x_rms
-            rms_list[0][(rms_list[0].size(0)-self.n)+i] = torch.std(output_bunch[:, 0])
-            # y_rms
-            rms_list[1][(rms_list[1].size(0) - self.n) + i] = torch.std(output_bunch[:, 2])
-            # z_rms
-            rms_list[2][(rms_list[2].size(0) - self.n) + i] = torch.add(self.z_start, torch.mul(self.n_length, i+1))
-
-            #particle_history = torch.stack((particle_history,temp_bunch),0)
-
-        return [output_bunch, rms_list]
-
     def second_order_correction(self, z_in, t):
         """
         Calculates the second order correction factors for a phase space vector z using the transport map coefficients,
@@ -231,7 +216,7 @@ class Solenoid:
         return outer_vector
 
 
-class Drift():
+class Drift(BeamLineElement):
 
     """ Drift class to calculate particles drifting through space """
 
@@ -240,101 +225,46 @@ class Drift():
         self.length = length
         self.ref_energy = ref_energy
         self.n_length = length/n
-        self.beta_s = torch.tensor(CMethods.beta(self.ref_energy))
+        self.beta_s = torch.tensor(CMethods.beta(self.ref_energy), dtype=torch.float64)
         self.gamma_s = CMethods.beta_to_gamma(self.beta_s)
-        self.z_start = 0
+        self.z_start = torch.tensor(0, dtype=torch.float64)
 
         self.generate_transfer_matrix()
-
-
-
-    def check_particles(self, input_particles):
-
-        if isinstance(input_particles, np.ndarray):
-            output_particles = torch.from_numpy(input_particles)
-        elif isinstance(input_particles, torch.Tensor):
-            output_particles = input_particles
-        else:
-            print("Unknown input particles input")
-
-        return output_particles
-
-    def check_rms(self, rms, n):
-
-        if not rms:
-            rms_out = [torch.zeros(n), torch.zeros(n), torch.zeros(n)]
-        else:
-            rms_out = [rms[0].detach().clone(), rms[1].detach().clone(), rms[2].detach().clone()]
-            self.z_start = rms[2][-1]
-            rms_out[0] = torch.cat([rms_out[0], torch.zeros(n)])
-            rms_out[1] = torch.cat([rms_out[1], torch.zeros(n)])
-            rms_out[2] = torch.cat([rms_out[2], torch.zeros(n)])
-
-        #print(rms_out)
-        return rms_out
 
     def generate_transfer_matrix(self):
 
         r = torch.eye(6, dtype=torch.float64)
 
-        l = torch.tensor(self.n_length, dtype=torch.float64)
+        l = torch.tensor(self.n_length, dtype=torch.float64, requires_grad=True).clone()
         beta_s_sq = torch.square(self.beta_s)
         gamma_s_sq = torch.square(self.gamma_s)
         beta_sq_gamma_sq = torch.mul(beta_s_sq, gamma_s_sq)
         l_div_beta_sq_gamma_sq = torch.div(l, beta_sq_gamma_sq)
 
+        r = r.clone()
         r[0, 1] = l
         r[2, 3] = l
         r[4, 5] = l_div_beta_sq_gamma_sq
 
         self.r = r
 
-    def track(self, input_particles, rms=[]):
-
-        working_particles = self.check_particles(input_particles).detach().clone()
-        output_bunch = working_particles
-        particle_history = working_particles
-
-        rms_list = self.check_rms(rms, self.n)
-
-        #print(f"Tracking a total of {working_particles.size(0)} particles through {self.n} drift segments.")
-        for i in range(self.n):
-            #if i % 10 == 0:
-                #print(f"Progress: {100*i/self.n} %.")
-            temp_bunch = torch.empty(1,6)
-            temp_bunch[0] = torch.matmul(self.r, working_particles[0])
-            for j in range(working_particles.size(0)):
-
-                output_bunch[j] = torch.matmul(self.r, working_particles[j])
-
-            # x_rms
-            rms_list[0][(rms_list[0].size(0)-self.n)+i] = torch.std(output_bunch[:, 0])
-            # y_rms
-            rms_list[1][(rms_list[1].size(0) - self.n) + i] = torch.std(output_bunch[:, 2])
-            # z_rms
-            rms_list[2][(rms_list[2].size(0) - self.n) + i] = torch.add(self.z_start, torch.mul(self.n_length, i+1))
-
-            #particle_history = torch.stack((particle_history,temp_bunch),0)
-
-        return [output_bunch, rms_list]
-
 
 class Beamline():
 
     def __init__(self):
-
         pass
 
-    def track(self, element_list, input_particles, rms=[]):
+    def track(self, element_list, input_particles):
 
         i = 0
+
         for element in element_list:
+
             if i == 0:
-                [output_particles, output_rms] = element.track(input_particles, rms)
+                [output_particles, output_rms] = element.track(input_particles)
             else:
                 [output_particles, output_rms] = element.track(output_particles, output_rms)
-                #output_particles = output_particles_temp
-                #output_rms = output_rms_temp
+
             i += 1
 
         return [output_particles, output_rms]
