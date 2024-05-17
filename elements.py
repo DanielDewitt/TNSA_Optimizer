@@ -5,21 +5,23 @@ import scipy as sp
 
 
 def toy_model(b_0, b_1, d_0, d_1, input_particles):
+    print(b_0, b_1, d_0, d_1)
+
     segments = 100
 
-    z_end = 5.4  # end position of simulation, e.g. diagnostics
+    z_end = 5.4  # end position of simulation
     z_0 = 0.04
 
     ref_energy = 10
 
     l_sol = 0.3  # solenoid length
-    # d_buffer = 0.2                              #buffer between elements
+    # d_buffer = 0.2                             #buffer between elements
 
     drift_0 = Drift(segments, z_0, ref_energy)
     drift_1 = Drift(segments, d_0, ref_energy)
-    solenoid_0 = Solenoid(segments, b_0, l_sol, ref_energy)
+    solenoid_0 = Solenoid(segments, b_field=b_0, length=l_sol, ref_energy=ref_energy)
     drift_2 = Drift(segments, d_1, ref_energy)
-    solenoid_1 = Solenoid(segments, b_1, l_sol, ref_energy)
+    solenoid_1 = Solenoid(segments, b_field=b_1, length=l_sol, ref_energy=ref_energy)
 
     z_rem = z_end - (z_0 + d_0 + 2 * l_sol + d_1)
 
@@ -40,6 +42,44 @@ def toy_model(b_0, b_1, d_0, d_1, input_particles):
     #        dy = 0
     [output_parts, rms] = beamline_0.track(element_list=toy_list, input_particles=input_particles)
     return rms
+
+
+def train_model(model, training_iter, alpha=0.1):
+    history_param = [None] * training_iter  # list to save params
+    history_loss = [None] * training_iter  # list to save loss
+
+    # print the trainable parameters
+    for param in model.named_parameters():
+        print(f'{param[0]} : {param[1]}')
+
+    # Use PyTorch Adam optimizer
+    optimizer = torch.optim.Adam(model.parameters(), alpha)
+
+    for i in range(training_iter):
+
+        # Zero gradients from previous iteration
+        optimizer.zero_grad()
+        # Calc loss and backprop gradients
+        # with torch.autograd.detect_anomaly():
+        loss = model()  # loss is just O.F.
+        loss.backward()  # gradient#
+        optimizer.step()
+
+        # print info:
+        if i % 10 == 0:  # print each 100 steps
+            print('Iter %d/%d - Loss: %.5f ' % (
+                i + 1, training_iter, loss
+            ))
+
+        # save loss and param
+        for param in model.parameters():
+            history_param[i] = param.data.detach().numpy().copy()
+            history_loss[i] = loss.detach().numpy().copy()
+
+        # optimization step
+
+    # returns params and loss for every iteration
+    return np.asarray(history_param), np.asarray(history_loss)
 
 
 class BeamLineElement:
@@ -104,8 +144,8 @@ class Solenoid(BeamLineElement):
         :param ref_energy: particle reference energy in MeV
         """
         self.n = n
-        self.b_field = b_field.clone()
-        self.length = length.clone()
+        self.b_field = b_field
+        self.length = length
         self.n_length = torch.div(self.length, self.n)
         self.ref_energy = ref_energy
         self.beta_s = torch.tensor(CMethods.beta(self.ref_energy), dtype=torch.float64)
@@ -308,7 +348,27 @@ class Beamline():
         return [output_particles, output_rms]
 
 
+class LatticeOptimizer(torch.nn.Module):
 
+    def __init__(self, par, input_particles):
+        super().__init__()
+        # register set of parameter:
+        self.input_particles = input_particles
+        self.register_parameter('par', torch.nn.Parameter(par, requires_grad=True))
+
+    def forward(self):
+        # create lattice given quad strengths in k_set:
+        rms = toy_model(self.par[0], self.par[1], self.par[2], self.par[3], self.input_particles)
+
+        sigma_x = rms[0][-1].clone()
+        sigma_y = rms[1][-1].clone()
+
+        # sigma_target = torch.tensor(0.0001, dtype=torch.float64)# calculate and return loss function:
+        sigma_target = 0.001
+        dx = (sigma_x - sigma_target)
+        dy = (sigma_y - sigma_target)
+
+        return torch.sqrt(torch.add(torch.square(dx), torch.square(dy)))
 
 
 
