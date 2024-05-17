@@ -831,7 +831,10 @@ def astra_file_to_ttm(file, ref_energy, particle = "proton"):
     p_t = beta_ref*((p-p_ref)/p_ref)        #approximation, see mad-x physics, eq. 1.4
 
     output_particles_np = np.array([x, delta_x, y, delta_y, t, p_t]).T
-    output_particles = torch.from_numpy(output_particles_np)
+    output_particles_temp = torch.from_numpy(output_particles_np)
+    output_particles = output_particles_temp.clone()
+    output_particles.requires_grad = True
+    #torch.tensor(output_particles, requires_grad=True)
 
     return output_particles
 

@@ -4,6 +4,44 @@ import CMethods
 import scipy as sp
 
 
+def toy_model(b_0, b_1, d_0, d_1, input_particles):
+    segments = 100
+
+    z_end = 5.4  # end position of simulation, e.g. diagnostics
+    z_0 = 0.04
+
+    ref_energy = 10
+
+    l_sol = 0.3  # solenoid length
+    # d_buffer = 0.2                              #buffer between elements
+
+    drift_0 = Drift(segments, z_0, ref_energy)
+    drift_1 = Drift(segments, d_0, ref_energy)
+    solenoid_0 = Solenoid(segments, b_0, l_sol, ref_energy)
+    drift_2 = Drift(segments, d_1, ref_energy)
+    solenoid_1 = Solenoid(segments, b_1, l_sol, ref_energy)
+
+    z_rem = z_end - (z_0 + d_0 + 2 * l_sol + d_1)
+
+    drift_3 = Drift(segments, z_rem, ref_energy)
+
+    toy_list = [drift_0, drift_1, solenoid_0, drift_2, solenoid_1, drift_3]
+
+    beamline_0 = Beamline()
+
+    #    if z_rem > 0:
+    #        [output_parts, rms] = beamline_0.track(element_list=toy_list, input_particles=test_particles_xyz)
+    #        sigma_x = rms[0][-1].item()
+    #        sigma_y = rms[1][-1].item()
+    #    else:
+    #        sigma_x = 0
+    #        sigma_y = 0
+    #        dx = 0
+    #        dy = 0
+    [output_parts, rms] = beamline_0.track(element_list=toy_list, input_particles=input_particles)
+    return rms
+
+
 class BeamLineElement:
 
     def __init__(self):
@@ -52,7 +90,6 @@ class BeamLineElement:
         return [input_particles_temp, rms]
 
 
-
 class Solenoid(BeamLineElement):
     """
     Solenoid class using second order transport maps similar to MAD-X. (see MAD-X Physics Guide). The map itself is
@@ -66,14 +103,18 @@ class Solenoid(BeamLineElement):
         :param length: (effective) length of the solenoid
         :param ref_energy: particle reference energy in MeV
         """
-        self.n = torch.tensor(n)
-        self.b_field = torch.tensor(b_field)
-        self.length = torch.tensor(length)
+        self.n = n
+        self.b_field = b_field.clone()
+        self.length = length.clone()
         self.n_length = torch.div(self.length, self.n)
         self.ref_energy = ref_energy
         self.beta_s = torch.tensor(CMethods.beta(self.ref_energy), dtype=torch.float64)
-        self.gamma_s = CMethods.beta_to_gamma(self.beta_s)
-        self.p_s = sp.constants.proton_mass*self.gamma_s*self.beta_s*sp.constants.speed_of_light
+        self.gamma_s = torch.tensor(CMethods.beta_to_gamma(CMethods.beta(self.ref_energy)), dtype=torch.float64)
+        self.gamma_beta_s = torch.mul(self.gamma_s, self.beta_s)
+        self.c = torch.tensor(sp.constants.speed_of_light)
+        self.mass = torch.tensor(sp.constants.proton_mass)
+        self.mass_c = torch.mul(self.mass, self.c)
+        self.p_s = torch.mul(self.mass_c, self.gamma_beta_s)
         self.q = torch.tensor(sp.constants.elementary_charge)
         self.z_start = torch.tensor(0, dtype=torch.float64)
 
@@ -86,9 +127,9 @@ class Solenoid(BeamLineElement):
         k_1 = torch.mul(self.p_s, 2)
         k = torch.div(k_0, k_1)
         k_sq = torch.square(k)
-        k_l = torch.mul(k,self.n_length)
+        k_l = torch.mul(k, self.n_length)
 
-        k_sq_l = torch.mul(k_sq,self.n_length)
+        k_sq_l = torch.mul(k_sq, self.n_length)
         c = torch.cos(k_l)
         c_2 = torch.cos(torch.mul(2, k_l))
         s = torch.sin(k_l)
@@ -134,63 +175,61 @@ class Solenoid(BeamLineElement):
 
         self.r = r
 
-        """ Second order transport map"""
-
-        zero_vector = torch.zeros(6, dtype=torch.float64)
-
-        t_1_1_6 = torch.mul(k_l_div_double_beta, s_2)
-        t_1_2_6 = torch.mul(-l_div_double_beta, c_2)
-        t_1_3_6 = torch.mul(-k_l_div_double_beta, c_2)
-        t_1_4_6 = torch.mul(-l_div_double_beta, s_2)
-
-        t_1_k_6 = torch.tensor([t_1_1_6, t_1_2_6, t_1_3_6, t_1_4_6, 0, 0], dtype=torch.float64)
-        t_1 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_1_k_6]
-
-        t_2_1_6 = torch.mul(k_sq_l_div_double_beta, c_2)
-        t_2_2_6 = torch.mul(k_l_div_double_beta, s_2)
-        t_2_3_6 = torch.mul(k_sq_l_div_double_beta, s_2)
-        t_2_4_6 = torch.mul(-k_l_div_double_beta, c_2)
-
-        t_2_k_6 = torch.tensor([t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, 0, 0], dtype=torch.float64)
-        t_2 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6]
-
-        t_3_1_6 = torch.mul(k_l_div_double_beta, c_2)
-        t_3_2_6 = torch.mul(l_div_double_beta, s_2)
-        t_3_3_6 = torch.mul(k_l_div_beta, s_2)
-        t_3_4_6 = torch.mul(-l_div_double_beta, c_2)
-
-        t_3_k_6 = torch.tensor([t_3_1_6, t_3_2_6, t_3_3_6, t_3_4_6, 0, 0], dtype=torch.float64)
-        t_3 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_3_k_6]
-
-        t_4_1_6 = torch.mul(-k_sq_l_div_double_beta, s_2)
-        t_4_2_6 = torch.mul(k_l_div_double_beta, c_2)
-        t_4_3_6 = torch.mul(k_sq_l_div_double_beta, c_2)
-        t_4_4_6 = torch.mul(k_l_div_double_beta, s_2)
-
-        t_4_k_6 = torch.tensor([t_4_1_6, t_4_2_6, t_4_3_6, t_4_4_6, 0, 0], dtype=torch.float64)
-        t_4 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_4_k_6]
-
-        t_5_1_1 = -k_sq_l_div_double_beta
-        t_5_k_1 = torch.tensor([t_5_1_1, 0, 0, 0, 0, 0], dtype=torch.float64)
-
-        t_5_2_2 = -l_div_double_beta
-        t_5_k_2 = torch.tensor([0, t_5_2_2, 0, 0, 0, 0], dtype=torch.float64)
-
-        t_5_2_3 = -k_l_div_double_beta
-        t_5_3_3 = -k_sq_l_div_double_beta
-        t_5_k_3 = torch.tensor([0, t_5_2_3, t_5_3_3, 0, 0, 0], dtype=torch.float64)
-
-        t_5_1_4 = k_l_div_double_beta
-        t_5_4_4 = -l_div_double_beta
-        t_5_k_4 = torch.tensor([t_5_1_4, 0, 0, t_5_4_4, 0, 0], dtype=torch.float64)
-
-        t_5_6_6 = -torch.div(torch.mul(3,self.n_length),torch.mul(double_beta_s_sq,gamma_s_sq))
-        t_5_k_6 = torch.tensor([0, 0, 0, 0, 0, t_5_6_6], dtype=torch.float64)
-        t_5 = [t_5_k_1, t_5_k_2, t_5_k_3, t_5_k_4, zero_vector, t_5_k_6]
-
-        t_6 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, zero_vector]
-
-        self.t = [t_1, t_2, t_3, t_4, t_5, t_6]
+        # zero_vector = torch.zeros(6, dtype=torch.float64)
+        #
+        # t_1_1_6 = torch.mul(k_l_div_double_beta, s_2)
+        # t_1_2_6 = torch.mul(-l_div_double_beta, c_2)
+        # t_1_3_6 = torch.mul(-k_l_div_double_beta, c_2)
+        # t_1_4_6 = torch.mul(-l_div_double_beta, s_2)
+        #
+        # t_1_k_6 = torch.tensor([t_1_1_6, t_1_2_6, t_1_3_6, t_1_4_6, 0, 0], dtype=torch.float64)
+        # t_1 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_1_k_6]
+        #
+        # t_2_1_6 = torch.mul(k_sq_l_div_double_beta, c_2)
+        # t_2_2_6 = torch.mul(k_l_div_double_beta, s_2)
+        # t_2_3_6 = torch.mul(k_sq_l_div_double_beta, s_2)
+        # t_2_4_6 = torch.mul(-k_l_div_double_beta, c_2)
+        #
+        # t_2_k_6 = torch.tensor([t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, 0, 0], dtype=torch.float64)
+        # t_2 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6]
+        #
+        # t_3_1_6 = torch.mul(k_l_div_double_beta, c_2)
+        # t_3_2_6 = torch.mul(l_div_double_beta, s_2)
+        # t_3_3_6 = torch.mul(k_l_div_beta, s_2)
+        # t_3_4_6 = torch.mul(-l_div_double_beta, c_2)
+        #
+        # t_3_k_6 = torch.tensor([t_3_1_6, t_3_2_6, t_3_3_6, t_3_4_6, 0, 0], dtype=torch.float64)
+        # t_3 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_3_k_6]
+        #
+        # t_4_1_6 = torch.mul(-k_sq_l_div_double_beta, s_2)
+        # t_4_2_6 = torch.mul(k_l_div_double_beta, c_2)
+        # t_4_3_6 = torch.mul(k_sq_l_div_double_beta, c_2)
+        # t_4_4_6 = torch.mul(k_l_div_double_beta, s_2)
+        #
+        # t_4_k_6 = torch.tensor([t_4_1_6, t_4_2_6, t_4_3_6, t_4_4_6, 0, 0], dtype=torch.float64)
+        # t_4 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_4_k_6]
+        #
+        # t_5_1_1 = -k_sq_l_div_double_beta
+        # t_5_k_1 = torch.tensor([t_5_1_1, 0, 0, 0, 0, 0], dtype=torch.float64)
+        #
+        # t_5_2_2 = -l_div_double_beta
+        # t_5_k_2 = torch.tensor([0, t_5_2_2, 0, 0, 0, 0], dtype=torch.float64)
+        #
+        # t_5_2_3 = -k_l_div_double_beta
+        # t_5_3_3 = -k_sq_l_div_double_beta
+        # t_5_k_3 = torch.tensor([0, t_5_2_3, t_5_3_3, 0, 0, 0], dtype=torch.float64)
+        #
+        # t_5_1_4 = k_l_div_double_beta
+        # t_5_4_4 = -l_div_double_beta
+        # t_5_k_4 = torch.tensor([t_5_1_4, 0, 0, t_5_4_4, 0, 0], dtype=torch.float64)
+        #
+        # t_5_6_6 = -torch.div(torch.mul(3,self.n_length),torch.mul(double_beta_s_sq,gamma_s_sq))
+        # t_5_k_6 = torch.tensor([0, 0, 0, 0, 0, t_5_6_6], dtype=torch.float64)
+        # t_5 = [t_5_k_1, t_5_k_2, t_5_k_3, t_5_k_4, zero_vector, t_5_k_6]
+        #
+        # t_6 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, zero_vector]
+        #
+        # self.t = [t_1, t_2, t_3, t_4, t_5, t_6]
 
     def second_order_correction(self, z_in, t):
         """
@@ -224,9 +263,9 @@ class Drift(BeamLineElement):
         self.n = n
         self.length = length
         self.ref_energy = ref_energy
-        self.n_length = length/n
-        self.beta_s = torch.tensor(CMethods.beta(self.ref_energy), dtype=torch.float64)
-        self.gamma_s = CMethods.beta_to_gamma(self.beta_s)
+        self.n_length = torch.div(self.length, self.n)
+        self.beta_s = torch.tensor(CMethods.beta(self.ref_energy), dtype=torch.float64, requires_grad=True)
+        self.gamma_s = torch.tensor(CMethods.beta_to_gamma(CMethods.beta(self.ref_energy)), dtype=torch.float64, requires_grad=True)
         self.z_start = torch.tensor(0, dtype=torch.float64)
 
         self.generate_transfer_matrix()
@@ -234,8 +273,7 @@ class Drift(BeamLineElement):
     def generate_transfer_matrix(self):
 
         r = torch.eye(6, dtype=torch.float64)
-
-        l = torch.tensor(self.n_length, dtype=torch.float64, requires_grad=True).clone()
+        l = self.n_length
         beta_s_sq = torch.square(self.beta_s)
         gamma_s_sq = torch.square(self.gamma_s)
         beta_sq_gamma_sq = torch.mul(beta_s_sq, gamma_s_sq)
@@ -268,6 +306,8 @@ class Beamline():
             i += 1
 
         return [output_particles, output_rms]
+
+
 
 
 
