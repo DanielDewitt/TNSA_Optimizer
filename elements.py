@@ -71,7 +71,6 @@ def train_model(model, training_iter, alpha=0.1):
                 i + 1, training_iter, loss
             ))
 
-        # save loss and param
         for param in model.parameters():
             history_param[i] = param.data.detach().numpy().copy()
             history_loss[i] = loss.detach().numpy().copy()
