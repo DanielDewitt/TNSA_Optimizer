@@ -121,7 +121,7 @@ class BeamLineElement:
             if second_order:
                 output_correction = self.second_order_correction(working_particles, self.t)
             else:
-                output_correction = 0
+                output_correction = torch.tensor(0)
 
             working_particles_temp = torch.add(output_bunch, output_correction)
             working_particles = working_particles_temp.clone()
@@ -157,7 +157,7 @@ class BeamLineElement:
         #     outer_vector[j] = torch.matmul(z_in, inner_vector)
         #     j += 1
 
-        outer_vector = torch.einsum('jkl,ik,il->ij', [self.t, z_in])
+        outer_vector = torch.einsum('jkl,ik,il->ij', [self.t, z_in, z_in])
 
         return outer_vector
 
@@ -248,6 +248,8 @@ class Solenoid(BeamLineElement):
 
         self.r = r
 
+        t = torch.zeros([6, 6, 6], dtype=torch.float64)
+        zero_scalar = torch.tensor(0, dtype=torch.float64)
         zero_vector = torch.zeros(6, dtype=torch.float64)
 
         t_1_1_6 = torch.mul(k_l_div_double_beta, s_2)
@@ -255,54 +257,54 @@ class Solenoid(BeamLineElement):
         t_1_3_6 = torch.mul(-k_l_div_double_beta, c_2)
         t_1_4_6 = torch.mul(-l_div_double_beta, s_2)
 
-        t_1_k_6 = torch.tensor([t_1_1_6, t_1_2_6, t_1_3_6, t_1_4_6, 0, 0], dtype=torch.float64)
-        t_1 = torch.nested.nested_tensor([zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_1_k_6])
+        t_1_k_6 = torch.stack((t_1_1_6, t_1_2_6, t_1_3_6, t_1_4_6, zero_scalar, zero_scalar))
+        t_1 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_1_k_6))
 
         t_2_1_6 = torch.mul(k_sq_l_div_double_beta, c_2)
         t_2_2_6 = torch.mul(k_l_div_double_beta, s_2)
         t_2_3_6 = torch.mul(k_sq_l_div_double_beta, s_2)
         t_2_4_6 = torch.mul(-k_l_div_double_beta, c_2)
 
-        t_2_k_6 = torch.tensor([t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, 0, 0], dtype=torch.float64)
-        t_2 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6]
+        t_2_k_6 = torch.stack((t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, zero_scalar, zero_scalar))
+        t_2 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6))
 
         t_3_1_6 = torch.mul(k_l_div_double_beta, c_2)
         t_3_2_6 = torch.mul(l_div_double_beta, s_2)
         t_3_3_6 = torch.mul(k_l_div_beta, s_2)
         t_3_4_6 = torch.mul(-l_div_double_beta, c_2)
 
-        t_3_k_6 = torch.tensor([t_3_1_6, t_3_2_6, t_3_3_6, t_3_4_6, 0, 0], dtype=torch.float64)
-        t_3 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_3_k_6]
+        t_3_k_6 = torch.stack((t_3_1_6, t_3_2_6, t_3_3_6, t_3_4_6, zero_scalar, zero_scalar))
+        t_3 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_3_k_6))
 
         t_4_1_6 = torch.mul(-k_sq_l_div_double_beta, s_2)
         t_4_2_6 = torch.mul(k_l_div_double_beta, c_2)
         t_4_3_6 = torch.mul(k_sq_l_div_double_beta, c_2)
         t_4_4_6 = torch.mul(k_l_div_double_beta, s_2)
 
-        t_4_k_6 = torch.tensor([t_4_1_6, t_4_2_6, t_4_3_6, t_4_4_6, 0, 0], dtype=torch.float64)
-        t_4 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_4_k_6]
+        t_4_k_6 = torch.stack((t_4_1_6, t_4_2_6, t_4_3_6, t_4_4_6, zero_scalar, zero_scalar))
+        t_4 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_4_k_6))
 
         t_5_1_1 = -k_sq_l_div_double_beta
-        t_5_k_1 = torch.tensor([t_5_1_1, 0, 0, 0, 0, 0], dtype=torch.float64)
+        t_5_k_1 = torch.stack((t_5_1_1, zero_scalar, zero_scalar, zero_scalar, zero_scalar, zero_scalar))
 
         t_5_2_2 = -l_div_double_beta
-        t_5_k_2 = torch.tensor([0, t_5_2_2, 0, 0, 0, 0], dtype=torch.float64)
+        t_5_k_2 = torch.stack((zero_scalar, t_5_2_2, zero_scalar, zero_scalar, zero_scalar, zero_scalar))
 
         t_5_2_3 = -k_l_div_double_beta
         t_5_3_3 = -k_sq_l_div_double_beta
-        t_5_k_3 = torch.tensor([0, t_5_2_3, t_5_3_3, 0, 0, 0], dtype=torch.float64)
+        t_5_k_3 = torch.stack((zero_scalar, t_5_2_3, t_5_3_3, zero_scalar, zero_scalar, zero_scalar))
 
         t_5_1_4 = k_l_div_double_beta
         t_5_4_4 = -l_div_double_beta
-        t_5_k_4 = torch.tensor([t_5_1_4, 0, 0, t_5_4_4, 0, 0], dtype=torch.float64)
+        t_5_k_4 = torch.stack((t_5_1_4, zero_scalar, zero_scalar, t_5_4_4, zero_scalar, zero_scalar))
 
         t_5_6_6 = -torch.div(torch.mul(3,self.n_length),torch.mul(double_beta_s_sq,gamma_s_sq))
-        t_5_k_6 = torch.tensor([0, 0, 0, 0, 0, t_5_6_6], dtype=torch.float64)
-        t_5 = [t_5_k_1, t_5_k_2, t_5_k_3, t_5_k_4, zero_vector, t_5_k_6]
+        t_5_k_6 = torch.stack((zero_scalar, zero_scalar, zero_scalar, zero_scalar, zero_scalar, t_5_6_6))
+        t_5 = torch.stack((t_5_k_1, t_5_k_2, t_5_k_3, t_5_k_4, zero_vector, t_5_k_6))
 
-        t_6 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, zero_vector]
+        t_6 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, zero_vector))
 
-        self.t = [t_1, t_2, t_3, t_4, t_5, t_6]
+        self.t = torch.stack((t_1, t_2, t_3, t_4, t_5, t_6))
 
 
 class Drift(BeamLineElement):
