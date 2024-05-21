@@ -106,8 +106,9 @@ class BeamLineElement:
 
         return rms
 
-    def track(self, input_particles, rms=[], second_order=False):
+    def track(self, input_particles, rms=[]):
 
+        second_order = self.second_order
         input_particles_temp = self.check_particles(input_particles)
         working_particles = input_particles_temp[-1].clone()
         output_bunch = working_particles.clone()
@@ -117,7 +118,14 @@ class BeamLineElement:
         for i in range(self.n):
 
             output_bunch = torch.einsum('ik,jk->ji', [self.r, working_particles])
-            working_particles = output_bunch.clone()
+            if second_order:
+                output_correction = self.second_order_correction(working_particles, self.t)
+            else:
+                output_correction = 0
+
+            working_particles_temp = torch.add(output_bunch, output_correction)
+            working_particles = working_particles_temp.clone()
+            #working_particles = output_bunch.clone()
 
             rms[0] = torch.cat([rms[0], torch.std(output_bunch[:, 0]).unsqueeze(0)])
 
@@ -127,6 +135,31 @@ class BeamLineElement:
 
         input_particles_temp.append(output_bunch)
         return [input_particles_temp, rms]
+
+    def second_order_correction(self, z_in, t):
+        """
+        Calculates the second order correction factors for a phase space vector z using the transport map coefficients,
+        see MAD-X physics documentation for more details (https://madx.web.cern.ch/madx/, Chapters 1.1, 4.1, 5.8.3)
+        :param z_in: Input phase space vector, see chapter 1.1
+        :param t: Second order transfer map, for a solenoid, see chapter 5.8.3
+        :return: Correction phase space vector, see chapter 4.1
+        """
+
+        # outer_vector = torch.zeros(6, dtype=torch.float64)
+        # j = 0
+        # for matrix in t:
+        #     inner_vector = torch.zeros(6, dtype=torch.float64)
+        #     i = 0
+        #     for vector in matrix:
+        #         inner_vector[i] = torch.matmul(z_in, vector)
+        #         i += 1
+        #
+        #     outer_vector[j] = torch.matmul(z_in, inner_vector)
+        #     j += 1
+
+        outer_vector = torch.einsum('jkl,ik,il->ij', [self.t, z_in])
+
+        return outer_vector
 
 
 class Solenoid(BeamLineElement):
@@ -142,6 +175,7 @@ class Solenoid(BeamLineElement):
         :param length: (effective) length of the solenoid
         :param ref_energy: particle reference energy in MeV
         """
+        self.second_order = True
         self.n = n
         self.b_field = b_field
         self.length = length
@@ -214,84 +248,61 @@ class Solenoid(BeamLineElement):
 
         self.r = r
 
-        # zero_vector = torch.zeros(6, dtype=torch.float64)
-        #
-        # t_1_1_6 = torch.mul(k_l_div_double_beta, s_2)
-        # t_1_2_6 = torch.mul(-l_div_double_beta, c_2)
-        # t_1_3_6 = torch.mul(-k_l_div_double_beta, c_2)
-        # t_1_4_6 = torch.mul(-l_div_double_beta, s_2)
-        #
-        # t_1_k_6 = torch.tensor([t_1_1_6, t_1_2_6, t_1_3_6, t_1_4_6, 0, 0], dtype=torch.float64)
-        # t_1 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_1_k_6]
-        #
-        # t_2_1_6 = torch.mul(k_sq_l_div_double_beta, c_2)
-        # t_2_2_6 = torch.mul(k_l_div_double_beta, s_2)
-        # t_2_3_6 = torch.mul(k_sq_l_div_double_beta, s_2)
-        # t_2_4_6 = torch.mul(-k_l_div_double_beta, c_2)
-        #
-        # t_2_k_6 = torch.tensor([t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, 0, 0], dtype=torch.float64)
-        # t_2 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6]
-        #
-        # t_3_1_6 = torch.mul(k_l_div_double_beta, c_2)
-        # t_3_2_6 = torch.mul(l_div_double_beta, s_2)
-        # t_3_3_6 = torch.mul(k_l_div_beta, s_2)
-        # t_3_4_6 = torch.mul(-l_div_double_beta, c_2)
-        #
-        # t_3_k_6 = torch.tensor([t_3_1_6, t_3_2_6, t_3_3_6, t_3_4_6, 0, 0], dtype=torch.float64)
-        # t_3 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_3_k_6]
-        #
-        # t_4_1_6 = torch.mul(-k_sq_l_div_double_beta, s_2)
-        # t_4_2_6 = torch.mul(k_l_div_double_beta, c_2)
-        # t_4_3_6 = torch.mul(k_sq_l_div_double_beta, c_2)
-        # t_4_4_6 = torch.mul(k_l_div_double_beta, s_2)
-        #
-        # t_4_k_6 = torch.tensor([t_4_1_6, t_4_2_6, t_4_3_6, t_4_4_6, 0, 0], dtype=torch.float64)
-        # t_4 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_4_k_6]
-        #
-        # t_5_1_1 = -k_sq_l_div_double_beta
-        # t_5_k_1 = torch.tensor([t_5_1_1, 0, 0, 0, 0, 0], dtype=torch.float64)
-        #
-        # t_5_2_2 = -l_div_double_beta
-        # t_5_k_2 = torch.tensor([0, t_5_2_2, 0, 0, 0, 0], dtype=torch.float64)
-        #
-        # t_5_2_3 = -k_l_div_double_beta
-        # t_5_3_3 = -k_sq_l_div_double_beta
-        # t_5_k_3 = torch.tensor([0, t_5_2_3, t_5_3_3, 0, 0, 0], dtype=torch.float64)
-        #
-        # t_5_1_4 = k_l_div_double_beta
-        # t_5_4_4 = -l_div_double_beta
-        # t_5_k_4 = torch.tensor([t_5_1_4, 0, 0, t_5_4_4, 0, 0], dtype=torch.float64)
-        #
-        # t_5_6_6 = -torch.div(torch.mul(3,self.n_length),torch.mul(double_beta_s_sq,gamma_s_sq))
-        # t_5_k_6 = torch.tensor([0, 0, 0, 0, 0, t_5_6_6], dtype=torch.float64)
-        # t_5 = [t_5_k_1, t_5_k_2, t_5_k_3, t_5_k_4, zero_vector, t_5_k_6]
-        #
-        # t_6 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, zero_vector]
-        #
-        # self.t = [t_1, t_2, t_3, t_4, t_5, t_6]
+        zero_vector = torch.zeros(6, dtype=torch.float64)
 
-    def second_order_correction(self, z_in, t):
-        """
-        Calculates the second order correction factors for a phase space vector z using the transport map coefficients,
-        see MAD-X physics documentation for more details (https://madx.web.cern.ch/madx/, Chapters 1.1, 4.1, 5.8.3)
-        :param z_in: Input phase space vector, see chapter 1.1
-        :param t: Second order transfer map, for a solenoid, see chapter 5.8.3
-        :return: Correction phase space vector, see chapter 4.1
-        """
+        t_1_1_6 = torch.mul(k_l_div_double_beta, s_2)
+        t_1_2_6 = torch.mul(-l_div_double_beta, c_2)
+        t_1_3_6 = torch.mul(-k_l_div_double_beta, c_2)
+        t_1_4_6 = torch.mul(-l_div_double_beta, s_2)
 
-        outer_vector = torch.zeros(6, dtype=torch.float64)
-        j = 0
-        for matrix in t:
-            inner_vector = torch.zeros(6, dtype=torch.float64)
-            i = 0
-            for vector in matrix:
-                inner_vector[i] = torch.matmul(z_in, vector)
-                i += 1
+        t_1_k_6 = torch.tensor([t_1_1_6, t_1_2_6, t_1_3_6, t_1_4_6, 0, 0], dtype=torch.float64)
+        t_1 = torch.nested.nested_tensor([zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_1_k_6])
 
-            outer_vector[j] = torch.matmul(z_in, inner_vector)
-            j += 1
+        t_2_1_6 = torch.mul(k_sq_l_div_double_beta, c_2)
+        t_2_2_6 = torch.mul(k_l_div_double_beta, s_2)
+        t_2_3_6 = torch.mul(k_sq_l_div_double_beta, s_2)
+        t_2_4_6 = torch.mul(-k_l_div_double_beta, c_2)
 
-        return outer_vector
+        t_2_k_6 = torch.tensor([t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, 0, 0], dtype=torch.float64)
+        t_2 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6]
+
+        t_3_1_6 = torch.mul(k_l_div_double_beta, c_2)
+        t_3_2_6 = torch.mul(l_div_double_beta, s_2)
+        t_3_3_6 = torch.mul(k_l_div_beta, s_2)
+        t_3_4_6 = torch.mul(-l_div_double_beta, c_2)
+
+        t_3_k_6 = torch.tensor([t_3_1_6, t_3_2_6, t_3_3_6, t_3_4_6, 0, 0], dtype=torch.float64)
+        t_3 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_3_k_6]
+
+        t_4_1_6 = torch.mul(-k_sq_l_div_double_beta, s_2)
+        t_4_2_6 = torch.mul(k_l_div_double_beta, c_2)
+        t_4_3_6 = torch.mul(k_sq_l_div_double_beta, c_2)
+        t_4_4_6 = torch.mul(k_l_div_double_beta, s_2)
+
+        t_4_k_6 = torch.tensor([t_4_1_6, t_4_2_6, t_4_3_6, t_4_4_6, 0, 0], dtype=torch.float64)
+        t_4 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_4_k_6]
+
+        t_5_1_1 = -k_sq_l_div_double_beta
+        t_5_k_1 = torch.tensor([t_5_1_1, 0, 0, 0, 0, 0], dtype=torch.float64)
+
+        t_5_2_2 = -l_div_double_beta
+        t_5_k_2 = torch.tensor([0, t_5_2_2, 0, 0, 0, 0], dtype=torch.float64)
+
+        t_5_2_3 = -k_l_div_double_beta
+        t_5_3_3 = -k_sq_l_div_double_beta
+        t_5_k_3 = torch.tensor([0, t_5_2_3, t_5_3_3, 0, 0, 0], dtype=torch.float64)
+
+        t_5_1_4 = k_l_div_double_beta
+        t_5_4_4 = -l_div_double_beta
+        t_5_k_4 = torch.tensor([t_5_1_4, 0, 0, t_5_4_4, 0, 0], dtype=torch.float64)
+
+        t_5_6_6 = -torch.div(torch.mul(3,self.n_length),torch.mul(double_beta_s_sq,gamma_s_sq))
+        t_5_k_6 = torch.tensor([0, 0, 0, 0, 0, t_5_6_6], dtype=torch.float64)
+        t_5 = [t_5_k_1, t_5_k_2, t_5_k_3, t_5_k_4, zero_vector, t_5_k_6]
+
+        t_6 = [zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, zero_vector]
+
+        self.t = [t_1, t_2, t_3, t_4, t_5, t_6]
 
 
 class Drift(BeamLineElement):
@@ -299,6 +310,7 @@ class Drift(BeamLineElement):
     """ Drift class to calculate particles drifting through space """
 
     def __init__(self, n, length, ref_energy):
+        self.second_order = False
         self.n = n
         self.length = length
         self.ref_energy = ref_energy
@@ -367,7 +379,25 @@ class LatticeOptimizer(torch.nn.Module):
         dx = (sigma_x - sigma_target)
         dy = (sigma_y - sigma_target)
 
-        return torch.sqrt(torch.add(torch.square(dx), torch.square(dy)))
+        #______________________________Volumetric Loss Function
+
+        aperture = 0.01
+        beamline_length = 5.4
+        aperture_penalty = 1
+
+        pipe_plane = aperture*beamline_length
+
+        rms_radius = torch.sqrt(torch.add(torch.square(rms[0]), torch.square(rms[1])))
+        beam_volume = torch.trapz(rms_radius, rms[2])
+        beam_volume_norm = torch.div(beam_volume, pipe_plane)
+
+        target_size = torch.sqrt(torch.add(torch.square(dx), torch.square(dy)))
+        target_size_norm = torch.div(target_size, aperture)
+
+        weighted_rms_radius = aperture_penalty*torch.div(torch.std(torch.exp(rms_radius - aperture)), aperture)
+
+        return 100*beam_volume_norm+10*target_size_norm+weighted_rms_radius
+        #return
 
 
 
