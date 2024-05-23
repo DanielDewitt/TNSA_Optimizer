@@ -316,7 +316,7 @@ class Solenoid(BeamLineElement):
         t[1, 3, 5] = t_2_4_6
 
         #t_2_k_6 = torch.stack((t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, zero_scalar, zero_scalar))
-        #t_2 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6))
+        #t_2 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6)) h
 
         t_3_1_6 = torch.mul(k_l_div_double_beta, c_2)
         t[2, 0, 5] = t_3_1_6
