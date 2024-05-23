@@ -10,18 +10,18 @@ def toy_model(b_0, b_1, d_0, d_1, input_particles):
     segments = 100
 
     z_end = 5.4  # end position of simulation
-    z_0 = 0.04
+    z_0 = 0.08
 
     ref_energy = 10
 
-    l_sol = 0.3  # solenoid length
+    l_sol = 0.15  # solenoid length
     # d_buffer = 0.2                             #buffer between elements
 
     drift_0 = Drift(segments, z_0, ref_energy)
     drift_1 = Drift(segments, d_0, ref_energy)
-    solenoid_0 = Solenoid(segments, b_field=b_0, length=l_sol, ref_energy=ref_energy)
+    solenoid_0 = Solenoid(segments, theta=b_0, length=l_sol, ref_energy=ref_energy)
     drift_2 = Drift(segments, d_1, ref_energy)
-    solenoid_1 = Solenoid(segments, b_field=b_1, length=l_sol, ref_energy=ref_energy)
+    solenoid_1 = Solenoid(segments, theta=b_1, length=l_sol, ref_energy=ref_energy)
 
     z_rem = z_end - (z_0 + d_0 + 2 * l_sol + d_1)
 
@@ -48,7 +48,10 @@ def thin_shell_solenoid(theta, r, z, length):
     """
     Calculates the z component of the magnetic field of a thin shell solenoid along the z axis. The solenoid is
     centered at z = 0 with z_0 being -l/2 and z_1 being l/2. See for example doi 10.1016/j.nima.2022.166706, eq. 19
-    :param theta: kilo Ampere-turn (N*I) for simplicity's sake
+
+    B_max = 8.3 for theta = 2000
+
+    :param theta: mega Ampere-turn (N*I) for simplicity's sake
     :param r: Radius of the solenoid
     :param z: Point on z axis for which the magnetic field is calculated
     :param length: Length of the solenoid
@@ -62,7 +65,7 @@ def thin_shell_solenoid(theta, r, z, length):
     delta_z_0 = z - z_0
     delta_z_1 = z - z_1
 
-    alpha = (mu_0*theta*1000)/(2*length)
+    alpha = (mu_0*theta*1000000)/(2*length)
     beta_0 = delta_z_0/np.sqrt(np.square(r)+np.square(delta_z_0))
     beta_1 = delta_z_1/np.sqrt(np.square(r)+np.square(delta_z_1))
 
@@ -143,7 +146,14 @@ class BeamLineElement:
 
         for i in range(self.n):
 
-            z_delta = self.l/2 - self.n_length*i
+
+
+            if isinstance(self, Solenoid):
+                z_delta = self.length / 2 - self.n_length * i
+                self.b_field = thin_shell_solenoid(self.theta, self.radius, z_delta, self.length)
+                self.generate_transfer_matrix()
+            else:
+                pass
 
             output_bunch = torch.einsum('ik,jk->ji', [self.r, working_particles])
             if second_order:
@@ -196,17 +206,19 @@ class Solenoid(BeamLineElement):
     divided into n sub-maps.
     """
 
-    def __init__(self, n, b_field, length, ref_energy):
+    def __init__(self, n, theta, length, ref_energy):
         """
         :param n: number of slices for map segmentation
         :param b_field: max B_z field component along z axis
         :param length: (effective) length of the solenoid
         :param ref_energy: particle reference energy in MeV
         """
+        self.radius = 0.04
+        self.length = length
         self.second_order = True
         self.n = n
-        self.b_field = b_field
-        self.length = length
+        self.theta = theta
+        self.b_field = thin_shell_solenoid(theta, self.radius, -length/2, self.length)
         self.n_length = torch.div(self.length, self.n)
         self.ref_energy = ref_energy
         self.beta_s = torch.tensor(CMethods.beta(self.ref_energy), dtype=torch.float64)
@@ -222,6 +234,7 @@ class Solenoid(BeamLineElement):
         self.generate_transfer_matrix()
 
     def generate_transfer_matrix(self):
+
         r = torch.zeros([6, 6], dtype=torch.float64)
 
         k_0 = torch.mul(self.q, self.b_field)
