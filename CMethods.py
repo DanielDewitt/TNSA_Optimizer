@@ -823,12 +823,17 @@ def astra_file_to_ttm(file, ref_energy, particle = "proton"):
     #     print("Unknown input object")
 
     beta_ref = beta(ref_energy)
-    p_ref = beta_to_p(beta_ref)*10**6
-    delta_x = p_x/p_ref
-    delta_y = p_y/p_ref
-    t = np.zeros_like(delta_x)
     p = np.sqrt(np.square(p_x)+np.square(p_y)+np.square(p_z))
-    p_t = beta_ref*((p-p_ref)/p_ref)        #approximation, see mad-x physics, eq. 1.4
+    p_s = np.average(p)
+    beta_s = p_s/(10**6*const.physical_constants['proton mass energy equivalent in MeV'][0])
+    p_ref = beta_to_p(beta_ref)*10**6
+    delta_x = p_x/p_s
+    delta_y = p_y/p_s
+
+    p_t = beta_s*((p-p_s)/p_s)
+    t = np.zeros_like(delta_x)
+
+    #p_t = beta_ref*((p-p_ref)/p_ref)        #approximation, see mad-x physics, eq. 1.4
 
     output_particles_np = np.array([x, delta_x, y, delta_y, t, p_t]).T
     output_particles_temp = torch.from_numpy(output_particles_np)

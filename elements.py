@@ -10,6 +10,7 @@ def toy_model(b_0, b_1, d_0, d_1, input_particles):
     segments = 100
 
     z_end = 5.4  # end position of simulation
+    #z_0 = 0.0855
     z_0 = 0.08
 
     ref_energy = 10
@@ -44,7 +45,7 @@ def toy_model(b_0, b_1, d_0, d_1, input_particles):
     return rms
 
 
-def thin_shell_solenoid(theta, r, z, length):
+def thin_shell_solenoid(current, r, z, length):
     """
     Calculates the z component of the magnetic field of a thin shell solenoid along the z axis. The solenoid is
     centered at z = 0 with z_0 being -l/2 and z_1 being l/2. See for example doi 10.1016/j.nima.2022.166706, eq. 19
@@ -58,6 +59,10 @@ def thin_shell_solenoid(theta, r, z, length):
     :return: Magnetic field B_z for z
     """
 
+    b_temp = []
+    r_list = np.arange(r, 0.05, 0.006)
+    n = 25
+
     mu_0 = sp.constants.mu_0
     z_0 = -length/2
     z_1 = length/2
@@ -65,11 +70,15 @@ def thin_shell_solenoid(theta, r, z, length):
     delta_z_0 = z - z_0
     delta_z_1 = z - z_1
 
-    alpha = (mu_0*theta*1000000)/(2*length)
-    beta_0 = delta_z_0/np.sqrt(np.square(r)+np.square(delta_z_0))
-    beta_1 = delta_z_1/np.sqrt(np.square(r)+np.square(delta_z_1))
+    alpha = (mu_0*current*1000*n)/(2*length)
 
-    b = alpha*(beta_0 - beta_1)
+    for radius in r_list:
+
+        beta_0 = delta_z_0/np.sqrt(np.square(radius)+np.square(delta_z_0))
+        beta_1 = delta_z_1/np.sqrt(np.square(radius)+np.square(delta_z_1))
+        b_temp.append(alpha*(beta_0 - beta_1))
+
+    b = b_temp[0]+b_temp[1]+b_temp[2]+b_temp[3]
 
     return b
 
@@ -213,7 +222,7 @@ class Solenoid(BeamLineElement):
         :param length: (effective) length of the solenoid
         :param ref_energy: particle reference energy in MeV
         """
-        self.radius = 0.04
+        self.radius = 0.03
         self.length = length
         self.second_order = True
         self.n = n
@@ -296,48 +305,64 @@ class Solenoid(BeamLineElement):
         t = t.clone()
         t_1_1_6 = torch.mul(k_l_div_double_beta, s_2)
         t[0, 0, 5] = t_1_1_6
+        t[0, 5, 0] = t_1_1_6
         t_1_2_6 = torch.mul(-l_div_double_beta, c_2)
         t[0, 1, 5] = t_1_2_6
+        t[0, 5, 1] = t_1_2_6
         t_1_3_6 = torch.mul(-k_l_div_double_beta, c_2)
         t[0, 2, 5] = t_1_3_6
+        t[0, 5, 2] = t_1_3_6
         t_1_4_6 = torch.mul(-l_div_double_beta, s_2)
         t[0, 3, 5] = t_1_4_6
+        t[0, 5, 3] = t_1_4_6
 
         #t_1_k_6 = torch.stack((t_1_1_6, t_1_2_6, t_1_3_6, t_1_4_6, zero_scalar, zero_scalar))
         #t_1 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_1_k_6))
 
         t_2_1_6 = torch.mul(k_sq_l_div_double_beta, c_2)
         t[1, 0, 5] = t_2_1_6
+        t[1, 5, 0] = t_2_1_6
         t_2_2_6 = torch.mul(k_l_div_double_beta, s_2)
         t[1, 1, 5] = t_2_2_6
+        t[1, 5, 1] = t_2_2_6
         t_2_3_6 = torch.mul(k_sq_l_div_double_beta, s_2)
         t[1, 2, 5] = t_2_3_6
+        t[1, 5, 2] = t_2_3_6
         t_2_4_6 = torch.mul(-k_l_div_double_beta, c_2)
         t[1, 3, 5] = t_2_4_6
+        t[1, 5, 3] = t_2_4_6
 
         #t_2_k_6 = torch.stack((t_2_1_6, t_2_2_6, t_2_3_6, t_2_4_6, zero_scalar, zero_scalar))
-        #t_2 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6)) h
+        #t_2 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_2_k_6))
 
         t_3_1_6 = torch.mul(k_l_div_double_beta, c_2)
         t[2, 0, 5] = t_3_1_6
+        t[2, 5, 0] = t_3_1_6
         t_3_2_6 = torch.mul(l_div_double_beta, s_2)
         t[2, 1, 5] = t_3_2_6
+        t[2, 5, 1] = t_3_2_6
         t_3_3_6 = torch.mul(k_l_div_beta, s_2)
         t[2, 2, 5] = t_3_3_6
+        t[2, 5, 2] = t_3_3_6
         t_3_4_6 = torch.mul(-l_div_double_beta, c_2)
         t[2, 3, 5] = t_3_4_6
+        t[2, 5, 3] = t_3_4_6
 
         #t_3_k_6 = torch.stack((t_3_1_6, t_3_2_6, t_3_3_6, t_3_4_6, zero_scalar, zero_scalar))
         #t_3 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_3_k_6))
 
         t_4_1_6 = torch.mul(-k_sq_l_div_double_beta, s_2)
         t[3, 0, 5] = t_4_1_6
+        t[3, 5, 0] = t_4_1_6
         t_4_2_6 = torch.mul(k_l_div_double_beta, c_2)
         t[3, 1, 5] = t_4_2_6
+        t[3, 5, 1] = t_4_2_6
         t_4_3_6 = torch.mul(k_sq_l_div_double_beta, c_2)
         t[3, 2, 5] = t_4_3_6
+        t[3, 5, 2] = t_4_3_6
         t_4_4_6 = torch.mul(k_l_div_double_beta, s_2)
         t[3, 3, 5] = t_4_4_6
+        t[3, 5, 3] = t_4_4_6
 
         #t_4_k_6 = torch.stack((t_4_1_6, t_4_2_6, t_4_3_6, t_4_4_6, zero_scalar, zero_scalar))
         #t_4 = torch.stack((zero_vector, zero_vector, zero_vector, zero_vector, zero_vector, t_4_k_6))
@@ -352,12 +377,14 @@ class Solenoid(BeamLineElement):
 
         t_5_2_3 = -k_l_div_double_beta
         t[4, 1, 2] = t_5_2_3
+        t[4, 2, 1] = t_5_2_3
         t_5_3_3 = -k_sq_l_div_double_beta
         t[4, 2, 2] = t_5_3_3
         #t_5_k_3 = torch.stack((zero_scalar, t_5_2_3, t_5_3_3, zero_scalar, zero_scalar, zero_scalar))
 
         t_5_1_4 = k_l_div_double_beta
         t[4, 0, 3] = t_5_1_4
+        t[4, 3, 0] = t_5_1_4
         t_5_4_4 = -l_div_double_beta
         t[4, 3, 3] = t_5_4_4
         #t_5_k_4 = torch.stack((t_5_1_4, zero_scalar, zero_scalar, t_5_4_4, zero_scalar, zero_scalar))
