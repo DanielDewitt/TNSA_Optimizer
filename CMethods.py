@@ -810,18 +810,6 @@ def astra_file_to_ttm(file, ref_energy, particle = "proton"):
     p_y = np.delete(p_y, 0)
     p_z = np.delete(p_z, 0)
 
-    # elif isinstance(file, astra.ParticleGroup):
-    #
-    #     p_x = file["px"]
-    #     p_y = file["py"]
-    #     p_z = file["pz"]
-    #     x = file["x"]
-    #     y = file["y"]
-    #     z = file["z"]
-    #
-    # else:
-    #     print("Unknown input object")
-
     beta_ref = beta(ref_energy)
     p = np.sqrt(np.square(p_x)+np.square(p_y)+np.square(p_z))
     p_s = np.average(p)

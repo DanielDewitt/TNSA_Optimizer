@@ -9,7 +9,7 @@ def toy_model(b_0, b_1, d_0, d_1, input_particles):
 
     segments = 100
 
-    z_end = 5.4  # end position of simulation
+    z_end = 5.4  # end position of simulation/ target
     #z_0 = 0.0855
     z_0 = 0.08
 
