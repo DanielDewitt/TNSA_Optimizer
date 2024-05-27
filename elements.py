@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import CMethods
 import scipy as sp
+import pandas as pd
 
 
 def toy_model(b_0, b_1, d_0, d_1, input_particles):
@@ -11,7 +12,8 @@ def toy_model(b_0, b_1, d_0, d_1, input_particles):
 
     z_end = 5.4  # end position of simulation/ target
     #z_0 = 0.0855
-    z_0 = 0.08
+    #z_0 = 0.08
+    z_0 = 0.088
 
     ref_energy = 10
 
@@ -52,7 +54,7 @@ def thin_shell_solenoid(current, r, z, length):
 
     B_max = 8.3 for theta = 2000
 
-    :param theta: mega Ampere-turn (N*I) for simplicity's sake
+    :param current: current in kA
     :param r: Radius of the solenoid
     :param z: Point on z axis for which the magnetic field is calculated
     :param length: Length of the solenoid
@@ -117,6 +119,70 @@ def train_model(model, training_iter, alpha=0.1):
 
     # returns params and loss for every iteration
     return np.asarray(history_param), np.asarray(history_loss)
+
+
+class Beam():
+
+    def __init__(self, file):
+
+        self.bunch_list = [self.astra_file_to_ttm(file)]
+        self.init_particle_count = self.bunch_list[0].size(0)
+        self.z_pos = torch.tensor([0])
+        self.mapping_steps = len(self.bunch_list)
+        self.rms_x = torch.tensor([torch.std(self.bunch_list[0][:,0])])
+        self.rms_y = torch.tensor([torch.std(self.bunch_list[0][:,2])])
+
+
+    def astra_file_to_ttm(self, file):
+            """
+            Transforms an astra .part file to a tensor for transfer matrix calculations
+            :param file: Name/path of the .part file
+            :param ref_energy: Reference energy
+            :param particle: Particle type: proton or electron
+            :return: Tensor object
+            """
+
+            # if isinstance(file, str):
+
+            cols = ["x", "y", "z", "px", "py", "pz", "Clock", "Charge", "Index", "Flag"]
+            df = pd.read_csv(file, header=None, names=cols)
+
+            first_row_df = df.iloc[[0]]
+
+            p_z = df["pz"].to_numpy()
+            p_z_ref = p_z[0]
+            p_z = p_z + p_z_ref
+            p_x = df["px"].to_numpy()
+            p_y = df["py"].to_numpy()
+            x = df["x"].to_numpy()
+            y = df["y"].to_numpy()
+            z = df["z"].to_numpy()
+            x = np.delete(x, 0)
+            y = np.delete(y, 0)
+            z = np.delete(z, 0)
+            p_x = np.delete(p_x, 0)
+            p_y = np.delete(p_y, 0)
+            p_z = np.delete(p_z, 0)
+
+            p = np.sqrt(np.square(p_x) + np.square(p_y) + np.square(p_z))
+            p_s = np.average(p)
+            beta_s = p_s / (10 ** 6 * sp.constants.physical_constants['proton mass energy equivalent in MeV'][0])
+            delta_x = p_x / p_s
+            delta_y = p_y / p_s
+
+            p_t = beta_s * ((p - p_s) / p_s)
+            t = np.zeros_like(delta_x)
+
+            # p_t = beta_ref*((p-p_ref)/p_ref)        #approximation, see mad-x physics, eq. 1.4
+
+            output_particles_np = np.array([x, delta_x, y, delta_y, t, p_t]).T
+            output_particles_temp = torch.from_numpy(output_particles_np)
+            output_particles = output_particles_temp.clone()
+            output_particles.requires_grad = True
+            # torch.tensor(output_particles, requires_grad=True)
+
+            return output_particles
+
 
 
 class BeamLineElement:
@@ -494,7 +560,7 @@ class LatticeOptimizer(torch.nn.Module):
 
         weighted_rms_radius = aperture_penalty*torch.div(torch.std(torch.exp(rms_radius - aperture)), aperture)
 
-        return beam_volume_norm+target_size_norm
+        return 10*beam_volume_norm+target_size_norm
         #return
 
 
