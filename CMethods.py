@@ -123,7 +123,7 @@ def populate_energy_slice(E, div_angle, n):
     return beta_mat
 
 
-def gen_p_dist(dataset, plot="n", p_num_denominator=10**6, prop_time=10):
+def gen_p_dist(dataset, plot="n", p_num_denominator=10**3, prop_time=10):
 
     """
     Generates a particle distribution based on RCF-Stack reconstruction methods

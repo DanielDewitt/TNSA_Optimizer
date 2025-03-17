@@ -21,7 +21,7 @@
     RefS = F
     TcheckS = F
     PHASE_SCAN = F
-    AUTO_PHASE = T
+    AUTO_PHASE = F
     Qbunch = 0
     TRACK_ALL = T
 
@@ -33,13 +33,13 @@
 ! EMS loc: z = 9.515
 !----------------------------
 
-    ZSTOP = 4
+    ZSTOP = 1
 
     !Set in distribution file instead: qbunch = 0.100 !varied [units?]
 
     Zemit = 1000
-    Zphase = 20
-!    screen = 0.4, 1
+    Zphase = 100
+    screen = 0.4, 1
     phases = T
 
     H_max = 2.0E-2
@@ -112,14 +112,37 @@
   LBfield = T
 ! MA1SLA01
 ! 8.351321e-003 T corresponds to 1A excitation current
-    FILE_BFieLD(1)='light_solenoid.dat'
-    S_pos(1) = 0
-    MaxB(1) = 1.75
+    FILE_BFieLD(1)='light_solenoid_new.csv'
+    S_pos(1) = -0.104
+    MaxB(1) = 7.3
     S_xoff(1) = 0.0
     S_yoff(1) = 0.0
-    S_smooth(1) = 1000000 !Zwischen 100.000 und 500.000 Konvergenz
+    S_smooth(1) = 10 !Zwischen 100.000 und 500.000 Konvergenz
     S_higher_order(1) = T
+
+    FILE_BFieLD(2)='light_solenoid_new.csv'
+    S_pos(2) = 2.5
+    MaxB(2) = 2.4
+    S_xoff(2) = 0.0
+    S_yoff(2) = 0.0
+    S_smooth(2) = 10
+    S_higher_order(2) = T
+
 /
+
+&CAVITY
+  LEfield = T
+    FILE_EFieLD(1)='cav_fit_rescaled.csv'
+    C_pos(1) = 0.75
+    MaxE(1) = 12
+    C_smooth(1) = 10
+    C_higher_order(1) = T
+    Nue(1) = 0.1084
+    Phi(1) = -60
+
+
+/
+
 
 
 
