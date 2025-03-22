@@ -1,131 +1,212 @@
 from astra import Astra
 import torch
 import numpy as np
+import pygad
 
-def toy_model(b_0, b_1, d_0, d_1):
 
-    z_end = 5.4                                 #end position of simulation, e.g. diagnostics
-    z_0 = 0.04                                  #position of the first element
+class AstraSCSBeamline:
+    """
+    Creates a Beamline object consisting of a Solenoid, a Cavity and a second Solenoid (SCS) using the lume astra
+    python wrapper.
+    """
 
-    l_sol = 0.3                                 #solenoid length
-    d_buffer = 0.2                              #buffer between elements
+    def __init__(self, astra_input_file, beamline_chromosome, aperture, zstop):
 
-    z_seg_0 = z_0 + d_0 + l_sol + d_buffer      #length of the first simulation segment
-    z_seg_1 = d_1 + l_sol
-    z_seg_12 = z_seg_0 + z_seg_1
-    z_rem = z_end - z_seg_12
+        """
+        :param astra_input_file: path to astra.in file
+        :param beamline_chromosome: parameter chromosome consisting of i_1, i_2, u_0, phi_0, d_01, d_12
+        :param aperture: toggles the apertures
+        :param zstop: z at which simulation stops
+        i_0: current of the first solenoid in kA
+        i_1: current of the second solenoid in kA
+        u_0: electric field amplitude of the cavity in MV/m
+        phi_0: phase shift of the cavity in rad
+        d_01: distance between the first solenoid and the cavity in m
+        d_12: distance between the cavity and the second solenoid
+        """
 
-    #Configure first solenoid
+        self.A0 = Astra(astra_input_file)
+        self.b_0 = 0.84 * beamline_chromosome[0]
+        self.b_1 = 0.84 * beamline_chromosome[1]
+        self.u_0 = beamline_chromosome[2]
+        self.phi_0 = (180*beamline_chromosome[3])/np.pi
+        self.d_01 = beamline_chromosome[4]
+        self.d_12 = beamline_chromosome[5]
+        self.aperture = aperture
+        self.zstop = zstop
+        self.sol_length = 0.252
+        self.buffer = 0.3
+        self.cavity_fringe = 0.08
+        self.cavity_length = 0.38
+        self.d_0 = -0.104 #corresponds to solenoid at 4 cm from target
+        self.d_1 = 0
+        self.d_2 = 0
+        self.f_cav = 0.1084 #cavity frequency in MHz
 
-    A0 = Astra("astra.in")
 
-    A0.input['aperture']['lapert'] = True
-    A0.input['aperture']['Ap_Z1(1)'] = z_0+d_0
-    A0.input['aperture']['Ap_Z2(1)'] = z_0+d_0+l_sol
-
-    A0.input['solenoid']['MaxB(1)'] = b_0
-
-    A0.input['newrun']['zstart'] = 0
-    A0.input['newrun']['zstop'] = z_seg_0
-
-    try:
-        if z_rem > 0:
-            A0.run()
-            output_particles_0 = A0.output["particles"][-1]
+        if self.aperture:
+            self.activate_aperture()
         else:
-            sigma_x = 0
-            sigma_y = 0
-            dx = 0
-            dy = 0
+            self.deactivate_aperture()
 
-    except ValueError:
-        sigma_x = 0
-        sigma_y = 0
-        dx = 0
-        dy = 0
-
-    A1 = Astra("astra.in")
-    A1.input['aperture']['lapert'] = True
-    A1.input['aperture']['Ap_Z1(1)'] = z_seg_0 + d_1
-    A1.input['aperture']['Ap_Z2(1)'] = z_seg_0 + d_1 + l_sol
-
-    A1.input['solenoid']['MaxB(1)'] = b_1
-
-    A1.input['newrun']['zstart'] = z_seg_0
-    A1.input['newrun']['zstop'] = z_end
-
-    try:
-        if z_rem > 0:
-            A1.track(output_particles_0,2.5)
-            output_particles_1 = A1.output["particles"][-1]
-            sigma_x = output_particles_1["mean_x"]
-            sigma_y = output_particles_1["mean_y"]
-        else:
-            sigma_x = 0
-            sigma_y = 0
-            dx = 0
-            dy = 0
-
-    except ValueError:
-        sigma_x = 0
-        sigma_y = 0
-        dx = 0
-        dy = 0
-
-    return sigma_x, sigma_y
+        self.set_env()
+        self.set_first_solenoid()
+        self.set_cavity()
+        self.set_second_solenoid()
 
 
-class AstraOptimizer(torch.nn.Module):
+    def set_env(self):
+        self.A0.input['newrun']['zstop'] = self.zstop
 
-    def __init__(self, params):
-        super().__init__()
-        # register set of quad strengths as parameter:
-        self.register_parameter('params',torch.nn.Parameter(params))
+    def activate_aperture(self):
 
-    def forward(self):
-        # create lattice given quad strengths in k_set:
+        self.A0.input['aperture']['lapert'] = True
+        self.aperture = True
 
-        sigma = toy_model(self.params[0], self.params[1], self.params[2], self.params[3])
-        sigma_x = sigma[0]
-        sigma_y = sigma[1]
+    def deactivate_aperture(self):
+        self.A0.input['aperture']['lapert'] = True
+        self.aperture = False
 
-        sigma_target = 0.0001# calculate and return loss function:
-        dx = (sigma_x - sigma_target)
-        dy = (sigma_y - sigma_target)
-        return torch.sqrt(dx ** 2 + dy ** 2)
+    def set_first_solenoid(self):
+        self.A0.input['solenoid']['S_pos(1)'] = self.d_0
+        self.A0.input['solenoid']['MaxB(1)'] = self.b_0
+        self.A0.input['solenoid']['S_xoff(1)'] = 0
+        self.A0.input['solenoid']['S_yoff(1)'] = 0
+
+    def set_cavity(self):
+        self.d_1 = self.d_0 + self.sol_length + self.buffer + self.d_01
+        self.A0.input['cavity']['C_pos(1)'] = self.d_1 + self.cavity_fringe
+
+        self.A0.input['cavity']['MaxE(1)'] = self.u_0
+        self.A0.input['cavity']['Nue(1)'] = self.f_cav
+        self.A0.input['cavity']['Phi(1)'] = self.phi_0
+
+    def set_second_solenoid(self):
+        self.d_2 = self.d_1 + self.cavity_length + self.cavity_fringe + self.buffer + self.d_12
+        self.A0.input['solenoid']['S_pos(2)'] = self.d_2 - 0.144
+        self.A0.input['solenoid']['MaxB(2)'] = self.b_1
+        self.A0.input['solenoid']['S_xoff(2)'] = 0
+        self.A0.input['solenoid']['S_yoff(2)'] = 0
 
 
-def train_model(model, training_iter, alpha=0.1):
-    history_param = [None] * training_iter  # list to save params
-    history_loss = [None] * training_iter  # list to save loss
+    def run_simulation(self, verbose=True, timeout=None):
+        self.A0.timeout = timeout
+        self.A0.verbose = verbose
+        self.A0.run()
 
-    # print the trainable parameters
-    for param in model.named_parameters():
-        print(f'{param[0]} : {param[1]}')
+    def envelope_plot(self):
+        self.A0.plot()
 
-    # Use PyTorch Adam optimizer
-    optimizer = torch.optim.Adam(model.parameters(), alpha)
+    def get_transmission(self, verb=True):
+        self.n_particles = self.A0.particles[-1]["n_particle"]
+        self.n_alive = self.A0.particles[-1]["n_alive"]
 
-    for i in range(training_iter):
-        # Zero gradients from previous iteration
-        optimizer.zero_grad()
-        # Calc loss and backprop gradients
-        loss = model()  # loss is just O.F.
-        loss.backward()  # gradient
+        transmission = self.n_alive/self.n_particles
+        if verb: print(np.round(100*transmission,1))
 
-        # print info:
-        if i % 100 == 0:  # print each 100 steps
-            print('Iter %d/%d - Loss: %.5f ' % (
-                i + 1, training_iter, loss
-            ))
+        return transmission
 
-        # save loss and param
-        for param in model.parameters():
-            history_param[i] = param.data.detach().numpy().copy()
-        history_loss[i] = loss.detach().numpy().copy()
+    def get_sigma_energy(self, pos):
+        return self.A0.output["stats"]["sigma_energy"][pos]
 
-        # optimization step
-        optimizer.step()
+    def get_mean_energy(self, pos):
+        return self.A0.output["stats"]["mean_kinetic_energy"][pos]
 
-    # returns params and loss for every iteration
-    return np.asarray(history_param), np.asarray(history_loss)
+    def get_sigma_energy_rel(self, pos):
+        rel_energy = self.get_sigma_energy(pos)/self.get_mean_energy(pos)
+
+        return rel_energy
+
+    def get_spot_size(self, pos):
+        """
+        Returns the spot size (1 sigma) of the beam at pos in mm
+        :param pos: longitudinal position index
+        :return: radius of the beam at pos in mm
+        """
+        mean_x = self.A0.output["stats"]["sigma_x"][pos] * 1000
+        mean_y = self.A0.output["stats"]["sigma_y"][pos] * 1000
+
+        return np.sqrt(mean_x**2 + mean_y**2)
+
+    def get_var_at_exit(self, index_width):
+
+        mean_x = self.A0.output["stats"]["sigma_x"][-index_width:] * 1000
+        mean_y = self.A0.output["stats"]["sigma_y"][-index_width:] * 1000
+
+        output_var_x = np.var(mean_x)
+        output_var_y = np.var(mean_y)
+
+        return np.sqrt(output_var_x**2 + output_var_y**2)
+
+
+def fitness_func(ga_instance, solution, solution_idx):
+
+    desired_output_transmission = 0.5
+    desired_output_sigma_energy = 0.001
+    desired_output_spot = 10
+
+    AGAD = AstraSCSBeamline("astra.in", solution, True, 5.4)
+    AGAD.run_simulation(verbose=False, timeout=None)
+    transmission = AGAD.get_transmission(verb=False)
+    sigma_energy = AGAD.get_sigma_energy_rel(-1)
+    spot_size = AGAD.get_spot_size(-1)
+    transmission_fitness = abs(transmission - desired_output_transmission) / desired_output_transmission
+    sigma_energy_fitness = abs(sigma_energy - desired_output_sigma_energy) / desired_output_sigma_energy
+    output_spot_fitness = abs(spot_size - desired_output_spot) / desired_output_spot
+
+    return transmission / sigma_energy_fitness + transmission / output_spot_fitness
+
+
+def on_generation(ga_instance):
+    ga_instance.logger.info(f"Generation = {ga_instance.generations_completed}")
+    ga_instance.logger.info(
+        f"Fitness    = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]}")
+    if ga_instance.generations_completed % 10 == 0:
+        ga_instance.logger.info(f"Solution    = {ga_instance.best_solution()[0]}")
+
+
+def evolution_run(num_generations, num_parents_mating, sol_per_pop, mutation_type, mutation_probability):
+
+    gs_i0 = {"low": 0, "high": 20}
+    gs_i1 = {"low": 0, "high": 20}
+    gs_u0 = {"low": 0, "high": 12}
+    gs_phi = {"low": 0, "high": 7}
+    gs_d01 = {"low": 0, "high": 2}
+    gs_d12 = {"low": 0, "high": 2}
+
+    beamline_chromosome = [gs_i0, gs_i1, gs_u0, gs_phi, gs_d01, gs_d12]
+
+    fitness_function = fitness_func
+
+    num_genes = len(beamline_chromosome)
+
+    parent_selection_type = "sss"
+    keep_parents = -1
+
+    crossover_type = "two_points"
+
+    mutation_percent_genes = 20
+
+    random_mutation_min_val = -2
+    random_mutation_max_val = 2
+
+    ga_instance = pygad.GA(num_generations=num_generations,
+                           num_parents_mating=num_parents_mating,
+                           fitness_func=fitness_function,
+                           on_generation=on_generation,
+                           sol_per_pop=sol_per_pop,
+                           num_genes=num_genes,
+                           parent_selection_type=parent_selection_type,
+                           keep_parents=keep_parents,
+                           crossover_type=crossover_type,
+                           mutation_type=mutation_type,
+                           mutation_probability=mutation_probability,
+                           mutation_percent_genes=mutation_percent_genes,
+                           random_mutation_min_val=random_mutation_min_val,
+                           random_mutation_max_val=random_mutation_max_val,
+                           gene_space=beamline_chromosome,
+                           parallel_processing=8)
+
+    ga_instance.run()
+
+    return ga_instance
