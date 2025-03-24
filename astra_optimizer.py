@@ -2,6 +2,7 @@ from astra import Astra
 import torch
 import numpy as np
 import pygad
+import scipy as sp
 
 
 class AstraSCSBeamline:
@@ -29,7 +30,7 @@ class AstraSCSBeamline:
         self.b_0 = 0.84 * beamline_chromosome[0]
         self.b_1 = 0.84 * beamline_chromosome[1]
         self.u_0 = beamline_chromosome[2]
-        self.phi_0 = (180*beamline_chromosome[3])/np.pi
+        self.phi_0 = 180*beamline_chromosome[3]
         self.d_01 = beamline_chromosome[4]
         self.d_12 = beamline_chromosome[5]
         self.aperture = aperture
@@ -153,8 +154,10 @@ def fitness_func(ga_instance, solution, solution_idx):
     transmission_fitness = abs(transmission - desired_output_transmission) / desired_output_transmission
     sigma_energy_fitness = abs(sigma_energy - desired_output_sigma_energy) / desired_output_sigma_energy
     output_spot_fitness = abs(spot_size - desired_output_spot) / desired_output_spot
+    k0 = 10
+    k1 = 1
 
-    return transmission / sigma_energy_fitness + transmission / output_spot_fitness
+    return transmission * (k0 / (1+sigma_energy_fitness) + k1 / (1+output_spot_fitness))
 
 
 def on_generation(ga_instance):
@@ -170,7 +173,7 @@ def evolution_run(num_generations, num_parents_mating, sol_per_pop, mutation_typ
     gs_i0 = {"low": 0, "high": 20}
     gs_i1 = {"low": 0, "high": 20}
     gs_u0 = {"low": 0, "high": 12}
-    gs_phi = {"low": 0, "high": 7}
+    gs_phi = {"low": 0, "high": 3}
     gs_d01 = {"low": 0, "high": 2}
     gs_d12 = {"low": 0, "high": 2}
 
@@ -180,8 +183,8 @@ def evolution_run(num_generations, num_parents_mating, sol_per_pop, mutation_typ
 
     num_genes = len(beamline_chromosome)
 
-    parent_selection_type = "sss"
-    keep_parents = -1
+    parent_selection_type = "rws"
+    keep_parents = 50
 
     crossover_type = "two_points"
 
@@ -209,4 +212,30 @@ def evolution_run(num_generations, num_parents_mating, sol_per_pop, mutation_typ
 
     ga_instance.run()
 
+
+
     return ga_instance
+
+def hybrid_optimization(num_generations, num_parents_mating, sol_per_pop, mutation_type, mutation_probability):
+
+    ga_instance = evolution_run(num_generations, num_parents_mating, sol_per_pop, mutation_type, mutation_probability)
+    best_solution = ga_instance.best_solution()[0]
+    base_chromosome = [best_solution[0], best_solution[1], best_solution[2], best_solution[3], best_solution[4],
+                       best_solution[5]]
+
+    def min_function(beamline_chromosome):
+        ABFGS = AstraSCSBeamline("astra.in", base_chromosome, True, 5.4)
+        ABFGS.run_simulation(verbose=False, timeout=None)
+        transmission = ABFGS.get_transmission(verb=False)
+        sigma_energy = ABFGS.get_sigma_energy_rel(-1)
+        spot_size = ABFGS.get_spot_size(-1) / 1000
+        output_slope = ABFGS.get_var_at_exit(100)
+
+        return (1 - transmission) + 5 * sigma_energy + spot_size + output_slope
+
+    res = sp.optimize.minimize(min_function, base_chromosome, method="COBYLA",
+                               options={"tol": 0.1, 'rhobeg': 1e-2, 'disp': True})
+
+    res.x
+
+
