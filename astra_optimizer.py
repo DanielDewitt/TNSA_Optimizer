@@ -29,10 +29,10 @@ class AstraSCSBeamline:
         self.A0 = Astra(astra_input_file)
         self.b_0 = 0.84 * beamline_chromosome[0]
         self.b_1 = 0.84 * beamline_chromosome[1]
-        self.u_0 = beamline_chromosome[2]
-        self.phi_0 = 180*beamline_chromosome[3]
-        self.d_01 = beamline_chromosome[4]
-        self.d_12 = beamline_chromosome[5]
+        self.u_0 = 12
+        self.phi_0 = 180*beamline_chromosome[2]
+        self.d_01 = beamline_chromosome[3]
+        self.d_12 = beamline_chromosome[4]
         self.aperture = aperture
         self.zstop = zstop
         self.sol_length = 0.252
@@ -140,102 +140,140 @@ class AstraSCSBeamline:
         return np.sqrt(output_var_x**2 + output_var_y**2)
 
 
-def fitness_func(ga_instance, solution, solution_idx):
-
-    desired_output_transmission = 0.5
-    desired_output_sigma_energy = 0.001
-    desired_output_spot = 10
-
-    AGAD = AstraSCSBeamline("astra.in", solution, True, 5.4)
-    AGAD.run_simulation(verbose=False, timeout=None)
-    transmission = AGAD.get_transmission(verb=False)
-    sigma_energy = AGAD.get_sigma_energy_rel(-1)
-    spot_size = AGAD.get_spot_size(-1)
-    transmission_fitness = abs(transmission - desired_output_transmission) / desired_output_transmission
-    sigma_energy_fitness = abs(sigma_energy - desired_output_sigma_energy) / desired_output_sigma_energy
-    output_spot_fitness = abs(spot_size - desired_output_spot) / desired_output_spot
-    k0 = 10
-    k1 = 1
-
-    return transmission * (k0 / (1+sigma_energy_fitness) + k1 / (1+output_spot_fitness))
 
 
-def on_generation(ga_instance):
-    ga_instance.logger.info(f"Generation = {ga_instance.generations_completed}")
-    ga_instance.logger.info(
-        f"Fitness    = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]}")
-    if ga_instance.generations_completed % 10 == 0:
-        ga_instance.logger.info(f"Solution    = {ga_instance.best_solution()[0]}")
+class HybridOptimizer():
+
+    def __init__(self, num_generations, num_parents_mating, sol_per_pop, mutation_type, mutation_probability, saturation):
+
+        self.num_generations = num_generations
+        self.num_parents_mating = num_parents_mating
+        self.sol_per_pop = sol_per_pop
+        self.mutation_type = mutation_type
+        self.mutation_probability = mutation_probability
+
+        self.best_solution = None
+        self.base_chromosome = None
+        self.coby_base_chromosome = []
+        self.nm_base_chromosome = []
+
+        self.sol_max_current = 20
+        self.cav_max_voltage = 12
+        self.cav_max_phi = 3
+        self.max_dist = 2
+
+        self.saturation = saturation
+
+        gs_i0 = {"low": 0, "high": self.sol_max_current}
+        gs_i1 = {"low": 0, "high": self.sol_max_current}
+        gs_phi = {"low": 0, "high": self.cav_max_phi}
+        gs_d01 = {"low": 0, "high": self.max_dist}
+        gs_d12 = {"low": 0, "high": self.max_dist}
+
+        beamline_chromosome = [gs_i0, gs_i1, gs_phi, gs_d01, gs_d12]
+
+        num_genes = len(beamline_chromosome)
+
+        self.parent_selection_type = "rws"
+        self.keep_parents = 50
+
+        self.crossover_type = "two_points"
+
+        self.mutation_percent_genes = 20
+
+        self.random_mutation_min_val = -2
+        self.random_mutation_max_val = 2
+
+        self.ga_instance = pygad.GA(num_generations=self.num_generations,
+                                    num_parents_mating=self.num_parents_mating,
+                                    fitness_func=self.fitness_func,
+                                    on_generation=self.on_generation,
+                                    sol_per_pop=self.sol_per_pop,
+                                    num_genes=num_genes,
+                                    parent_selection_type=self.parent_selection_type,
+                                    keep_parents=self.keep_parents,
+                                    crossover_type=self.crossover_type,
+                                    mutation_type=self.mutation_type,
+                                    mutation_probability=self.mutation_probability,
+                                    mutation_percent_genes=self.mutation_percent_genes,
+                                    random_mutation_min_val=self.random_mutation_min_val,
+                                    random_mutation_max_val=self.random_mutation_max_val,
+                                    gene_space=beamline_chromosome,
+                                    parallel_processing=8,
+                                    stop_criteria="saturate_20")
+
+    def fitness_func(self, ga_instance, solution, solution_idx):
+        desired_output_transmission = 0.5
+        desired_output_sigma_energy = 0.01
+        desired_output_spot = 10
+        desired_output_divergence = 10**(-5)
+
+        AGAD = AstraSCSBeamline("astra.in", solution, True, 5.4)
+        AGAD.run_simulation(verbose=False, timeout=None)
+        transmission = AGAD.get_transmission(verb=False)
+        sigma_energy = AGAD.get_sigma_energy_rel(-1)
+        spot_size = AGAD.get_spot_size(-1)
+        mean_energy_start = AGAD.get_mean_energy(0)
+        mean_energy_end = AGAD.get_mean_energy(-1)
+        mean_energy_fitness = abs(mean_energy_end-mean_energy_start)/mean_energy_start
+        transmission_fitness = abs(transmission - desired_output_transmission) / desired_output_transmission
+        sigma_energy_fitness = abs(sigma_energy - desired_output_sigma_energy) / desired_output_sigma_energy
+        output_spot_fitness = abs(spot_size - desired_output_spot) / desired_output_spot
+        exit_divergence = AGAD.get_var_at_exit(15)
+        exit_divergence_fitness = abs(exit_divergence-desired_output_divergence) / desired_output_divergence
+
+        k0 = 10
+        k1 = 1
+        k2 = 2
+        k3 = 2
+
+        return transmission * (k0 / (1 + sigma_energy_fitness) +
+                               k1 / (1 + output_spot_fitness) +
+                               k2 / (1 + mean_energy_fitness) +
+                               k3 / (1 + exit_divergence_fitness))
+
+    def on_generation(self, ga_instance):
+        ga_instance.logger.info(f"Generation = {ga_instance.generations_completed}")
+        ga_instance.logger.info(
+            f"Fitness    = {ga_instance.best_solution(pop_fitness=ga_instance.last_generation_fitness)[1]}")
+        if ga_instance.generations_completed % 10 == 0:
+            ga_instance.logger.info(f"Solution    = {ga_instance.best_solution()[0]}")
+
+    def run_ga(self, gen_num=None):
+
+        if gen_num: self.ga_instance.num_generations = gen_num
+
+        self.ga_instance.run()
+
+        self.ga_instance.num_generations=self.num_generations
+        self.best_solution = self.ga_instance.best_solution()[0]
+        self.base_chromosome = [self.best_solution[0], self.best_solution[1], self.best_solution[2],
+                                self.best_solution[3], self.best_solution[4]]
+        self.coby_base_chromosome.append(self.base_chromosome)
+        self.nm_base_chromosome.append(self.base_chromosome)
+
+    def run_coby(self):
+
+        bnds = ((0, self.sol_max_current), (0, self.sol_max_current),
+                (0, self.cav_max_phi), (0, self.max_dist), (0, self.max_dist))
 
 
-def evolution_run(num_generations, num_parents_mating, sol_per_pop, mutation_type, mutation_probability):
+        def min_function(beamline_chromosome):
+            ABFGS = AstraSCSBeamline("astra.in", beamline_chromosome, True, 5.4)
+            ABFGS.run_simulation(verbose=False, timeout=None)
+            transmission = ABFGS.get_transmission(verb=False)
+            sigma_energy = ABFGS.get_sigma_energy_rel(-1)
+            spot_size = ABFGS.get_spot_size(-1) / 1000
+            output_slope = ABFGS.get_var_at_exit(15)
 
-    gs_i0 = {"low": 0, "high": 20}
-    gs_i1 = {"low": 0, "high": 20}
-    gs_u0 = {"low": 0, "high": 12}
-    gs_phi = {"low": 0, "high": 3}
-    gs_d01 = {"low": 0, "high": 2}
-    gs_d12 = {"low": 0, "high": 2}
+            return (1 - transmission) + 5 * sigma_energy + spot_size + output_slope
 
-    beamline_chromosome = [gs_i0, gs_i1, gs_u0, gs_phi, gs_d01, gs_d12]
+        res = sp.optimize.minimize(min_function, self.coby_base_chromosome[-1], method="COBYLA",
+                                   options={"tol": 1e-9, 'disp': True}, bounds=bnds)
 
-    fitness_function = fitness_func
-
-    num_genes = len(beamline_chromosome)
-
-    parent_selection_type = "rws"
-    keep_parents = 50
-
-    crossover_type = "two_points"
-
-    mutation_percent_genes = 20
-
-    random_mutation_min_val = -2
-    random_mutation_max_val = 2
-
-    ga_instance = pygad.GA(num_generations=num_generations,
-                           num_parents_mating=num_parents_mating,
-                           fitness_func=fitness_function,
-                           on_generation=on_generation,
-                           sol_per_pop=sol_per_pop,
-                           num_genes=num_genes,
-                           parent_selection_type=parent_selection_type,
-                           keep_parents=keep_parents,
-                           crossover_type=crossover_type,
-                           mutation_type=mutation_type,
-                           mutation_probability=mutation_probability,
-                           mutation_percent_genes=mutation_percent_genes,
-                           random_mutation_min_val=random_mutation_min_val,
-                           random_mutation_max_val=random_mutation_max_val,
-                           gene_space=beamline_chromosome,
-                           parallel_processing=8)
-
-    ga_instance.run()
+        self.coby_base_chromosome.append([res.x[0], res.x[1], res.x[2],
+                                res.x[3], res.x[4]])
 
 
-
-    return ga_instance
-
-def hybrid_optimization(num_generations, num_parents_mating, sol_per_pop, mutation_type, mutation_probability):
-
-    ga_instance = evolution_run(num_generations, num_parents_mating, sol_per_pop, mutation_type, mutation_probability)
-    best_solution = ga_instance.best_solution()[0]
-    base_chromosome = [best_solution[0], best_solution[1], best_solution[2], best_solution[3], best_solution[4],
-                       best_solution[5]]
-
-    def min_function(beamline_chromosome):
-        ABFGS = AstraSCSBeamline("astra.in", base_chromosome, True, 5.4)
-        ABFGS.run_simulation(verbose=False, timeout=None)
-        transmission = ABFGS.get_transmission(verb=False)
-        sigma_energy = ABFGS.get_sigma_energy_rel(-1)
-        spot_size = ABFGS.get_spot_size(-1) / 1000
-        output_slope = ABFGS.get_var_at_exit(100)
-
-        return (1 - transmission) + 5 * sigma_energy + spot_size + output_slope
-
-    res = sp.optimize.minimize(min_function, base_chromosome, method="COBYLA",
-                               options={"tol": 0.1, 'rhobeg': 1e-2, 'disp': True})
-
-    res.x
-
-
+        print(self.coby_base_chromosome)
+        print(self.base_chromosome)
