@@ -174,7 +174,7 @@ class HybridOptimizer():
 
         num_genes = len(beamline_chromosome)
 
-        self.parent_selection_type = "rws"
+        self.parent_selection_type = "tournament"
         self.keep_parents = 50
 
         self.crossover_type = "two_points"
@@ -222,8 +222,8 @@ class HybridOptimizer():
         exit_divergence = AGAD.get_var_at_exit(15)
         exit_divergence_fitness = abs(exit_divergence-desired_output_divergence) / desired_output_divergence
 
-        k0 = 10
-        k1 = 1
+        k0 = 5
+        k1 = 0
         k2 = 2
         k3 = 2
 
@@ -266,7 +266,7 @@ class HybridOptimizer():
             spot_size = ABFGS.get_spot_size(-1) / 1000
             output_slope = ABFGS.get_var_at_exit(15)
 
-            return (1 - transmission) + 5 * sigma_energy + spot_size + output_slope
+            return (1 - transmission) + 5 * sigma_energy + output_slope
 
         res = sp.optimize.minimize(min_function, self.coby_base_chromosome[-1], method="COBYLA",
                                    options={"tol": 1e-9, 'disp': True}, bounds=bnds)
@@ -276,4 +276,30 @@ class HybridOptimizer():
 
 
         print(self.coby_base_chromosome)
+        print(self.base_chromosome)
+
+    def run_nelder_mead(self):
+
+        bnds = ((0, self.sol_max_current), (0, self.sol_max_current),
+                (0, self.cav_max_phi), (0, self.max_dist), (0, self.max_dist))
+
+        def min_function(beamline_chromosome):
+            ABFGS = AstraSCSBeamline("astra.in", beamline_chromosome, True, 5.4)
+            ABFGS.run_simulation(verbose=False, timeout=None)
+            transmission = ABFGS.get_transmission(verb=False)
+            sigma_energy = ABFGS.get_sigma_energy_rel(-1)
+            spot_size = ABFGS.get_spot_size(-1) / 1000
+            output_slope = ABFGS.get_var_at_exit(15)
+            output_energy = ABFGS.get_mean_energy(0)
+
+            return (1 - transmission) + 5 * sigma_energy + output_slope
+
+        res = sp.optimize.minimize(min_function, self.nm_base_chromosome[-1], method="Nelder-Mead",
+                                   options={'disp': True}, bounds=bnds)
+
+        self.nm_base_chromosome.append([res.x[0], res.x[1], res.x[2],
+                                res.x[3], res.x[4]])
+
+
+        print(self.nm_base_chromosome)
         print(self.base_chromosome)
