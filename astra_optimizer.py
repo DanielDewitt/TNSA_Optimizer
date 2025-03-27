@@ -228,7 +228,7 @@ class HybridOptimizer():
                                     stop_criteria="saturate_20")
 
     def fitness_func(self, ga_instance, solution, solution_idx):
-        desired_output_transmission = 0.5
+        desired_output_transmission = 1
         desired_output_sigma_energy = 0.01
         desired_output_spot = 10
         desired_output_divergence = 10**(-5)
@@ -246,16 +246,19 @@ class HybridOptimizer():
         output_spot_fitness = abs(spot_size - desired_output_spot) / desired_output_spot
         exit_divergence = AGAD.get_var_at_exit(15)
         exit_divergence_fitness = abs(exit_divergence-desired_output_divergence) / desired_output_divergence
+        cutoff_transmission = AGAD.transmission_after_cutoff(0.002, 0.002)
 
         k0 = 5
         k1 = 0
         k2 = 2
         k3 = 2
 
-        return transmission * (k0 / (1 + sigma_energy_fitness) +
-                               k1 / (1 + output_spot_fitness) +
-                               k2 / (1 + mean_energy_fitness) +
-                               k3 / (1 + exit_divergence_fitness))
+        composite_fitness = transmission * (k0 / (1 + sigma_energy_fitness) +
+                                            k1 / (1 + output_spot_fitness) +
+                                            k2 / (1 + mean_energy_fitness) +
+                                            k3 / (1 + exit_divergence_fitness))
+
+        return cutoff_transmission
 
     def on_generation(self, ga_instance):
         ga_instance.logger.info(f"Generation = {ga_instance.generations_completed}")
