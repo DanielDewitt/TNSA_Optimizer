@@ -257,7 +257,6 @@ class HybridOptimizer():
                                             k1 / (1 + output_spot_fitness) +
                                             k2 / (1 + mean_energy_fitness) +
                                             k3 / (1 + exit_divergence_fitness))
-
         return cutoff_transmission
 
     def on_generation(self, ga_instance):
