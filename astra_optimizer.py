@@ -1,8 +1,8 @@
 from astra import Astra
-import torch
 import numpy as np
 import pygad
 import scipy as sp
+import CMethods
 
 
 class AstraSCSBeamline:
@@ -138,6 +138,31 @@ class AstraSCSBeamline:
         output_var_y = np.var(mean_y)
 
         return np.sqrt(output_var_x**2 + output_var_y**2)
+
+    def create_cutoff_group(self, rel_max, rel_min):
+
+        e_mean = self.A0.output["stats"]["mean_kinetic_energy"][-1]
+        e_max = (1 + rel_max) * e_mean
+        e_min = (1 - rel_min) * e_mean
+
+        P0 = self.A0.output["particles"][-1]
+
+        P1 = P0.where(CMethods.E_kin(P0.beta) * 1e6 > e_min)
+        P2 = P1.where(CMethods.E_kin(P1.beta) * 1e6 < e_max)
+
+        return P2
+
+    def transmission_after_cutoff(self, rel_max, rel_min):
+
+        P2 = self.create_cutoff_group(rel_max, rel_min)
+
+        n_out = P2.n_alive
+        n_in = self.A0.output["particles"][0].n_alive
+
+        return n_out / n_in
+
+
+
 
 
 
