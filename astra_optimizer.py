@@ -145,7 +145,8 @@ class AstraSCSBeamline:
         e_max = (1 + rel_max) * e_mean
         e_min = (1 - rel_min) * e_mean
 
-        P0 = self.A0.output["particles"][-1]
+        P0_temp = self.A0.output["particles"][-1]
+        P0 = P0_temp.where(P0_temp.status == 1)
 
         P1 = P0.where(CMethods.E_kin(P0.beta) * 1e6 > e_min)
         P2 = P1.where(CMethods.E_kin(P1.beta) * 1e6 < e_max)
@@ -160,6 +161,12 @@ class AstraSCSBeamline:
         n_in = self.A0.output["particles"][0].n_alive
 
         return n_out / n_in
+
+    def get_cutoff_diagnostics(self, rel_max, rel_min):
+        P2 = self.create_cutoff_group(rel_max, rel_min)
+
+        return P2.norm_emit_x, P2.norm_emit_y
+
 
 
 
@@ -232,6 +239,8 @@ class HybridOptimizer():
         desired_output_sigma_energy = 0.01
         desired_output_spot = 10
         desired_output_divergence = 10**(-5)
+        desired_output_eps_x = 3.12
+        desired_output_eps_y = 9.96
 
         AGAD = AstraSCSBeamline("astra.in", solution, True, 5.4)
         AGAD.run_simulation(verbose=False, timeout=None)
@@ -252,6 +261,8 @@ class HybridOptimizer():
         k1 = 0
         k2 = 2
         k3 = 2
+
+
 
         composite_fitness = transmission * (k0 / (1 + sigma_energy_fitness) +
                                             k1 / (1 + output_spot_fitness) +
@@ -293,7 +304,9 @@ class HybridOptimizer():
             spot_size = ABFGS.get_spot_size(-1) / 1000
             output_slope = ABFGS.get_var_at_exit(15)
 
-            return (1 - transmission) + 5 * sigma_energy + output_slope
+            cutoff_transmission = ABFGS.transmission_after_cutoff(0.002, 0.002)
+
+            return cutoff_transmission
 
         res = sp.optimize.minimize(min_function, self.coby_base_chromosome[-1], method="COBYLA",
                                    options={"tol": 1e-9, 'disp': True}, bounds=bnds)
